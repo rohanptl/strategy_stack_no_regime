@@ -344,7 +344,18 @@ def build_snapshot_metrics(
         )
 
     if not rows:
-        return pd.DataFrame()
+        # Return an empty frame with expected metric columns so that downstream
+        # merging and CSV exports can proceed without missing-column errors.
+        return pd.DataFrame(
+            columns=[
+                "ticker", "last_close", "sma50", "sma200", "ema10",
+                "macd", "macd_signal", "macd_hist", "weekly_macd_hist",
+                "atr15", "realized_vol20", "ret_6m",
+                "breakout_89d", "exit_13d",
+                "above_ema10", "above_sma200", "sma50_gt_sma200",
+                "cash_like",
+            ]
+        )
     return pd.DataFrame(rows)
 
 
@@ -387,13 +398,14 @@ def capped_normalize(weights: pd.Series, max_cap: float, uncapped_tickers: Optio
 
 def score_and_allocate(
     metrics: pd.DataFrame,
-    regime: RegimeResult,
     cash_ticker: str,
     top_k: int,
     max_alloc: float,
 ) -> pd.DataFrame:
     if metrics.empty:
-        return pd.DataFrame({"ticker": [cash_ticker], "target_weight": [1.0]})
+        return pd.DataFrame(
+            {"ticker": [cash_ticker], "target_weight": [1.0], "raw_score": [0.0]}
+        )
     
     df = metrics.copy()
     df["eligible"] = False
@@ -402,10 +414,6 @@ def score_and_allocate(
         t = row["ticker"]
         if t == cash_ticker:
             df.at[idx, "eligible"] = True
-            continue
-
-        if not regime.risk_on:
-            df.at[idx, "eligible"] = False
             continue
 
         if row["above_sma200"] and not row["exit_13d"]:
@@ -585,6 +593,7 @@ def allocation_mode(
     print_progress("Reconciling current holdings against target weights")
     current = derive_current_weights(holdings, close_px)
     out = alloc.merge(current, on="ticker", how="left")
+    out = out.merge(metrics, on="ticker", how="left")
     out["current_weight"] = out["current_weight"].fillna(0.0)
     out["delta_weight"] = out["target_weight"] - out["current_weight"]
     out["current_alloc_pct"] = out["current_weight"] * 100.0

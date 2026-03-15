@@ -1,0 +1,2 @@
+ticker,current_alloc_pct,target_alloc_pct,delta_pct_points,action,rationale
+SGOV,2.0366063799546628,100.0,97.96339362004534,INCREASE,SGOV used as residual cash sleeve when not enough ETFs qualify; uncapped.

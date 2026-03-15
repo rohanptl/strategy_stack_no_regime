@@ -1,0 +1,2 @@
+ticker,last_close,ret_6m,realized_vol20,atr15,above_ema10,above_sma200,sma50_gt_sma200,macd,macd_signal,macd_hist,weekly_macd_hist,breakout_89d,exit_13d,raw_score,current_alloc_pct,target_alloc_pct,delta_pct_points,action,rationale
+SGOV,,,,,,,,,,,,,,0.0,2.0366063799546628,100.0,97.96339362004534,INCREASE,SGOV used as residual cash sleeve when not enough ETFs qualify; uncapped.
