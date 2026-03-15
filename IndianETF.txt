@@ -1,50 +1,74 @@
-Nippon India ETF Nifty IT 
-ITBEES.NS
+Nippon India ETF Nifty IT
+ITBEES.NS  ￼
 
-PHARMABEES.NS
+Nippon India Nifty Pharma ETF
+PHARMABEES.NS  ￼
 
-SILVERBEES.NS
+Nippon India Silver ETF
+SILVERBEES.NS  ￼
 
-GOLDBEES.NS
+Nippon India ETF Gold BeES
+GOLDBEES.NS  ￼
 
-BANKBEES.NS
+Nippon India ETF Nifty Bank BeES
+BANKBEES.NS  ￼
 
-JUNIORBEES.NS
+Nippon India ETF Nifty Next 50 Junior BeES
+JUNIORBEES.NS  ￼
 
-MON100.NS
+Motilal Oswal NASDAQ 100 ETF
+MON100.NS  ￼
 
-MAFANG.NS
+Mirae Asset NYSE FANG+ETF
+MAFANG.NS  ￼
 
-MAHKTECH.NS
+Mirae Asset Hang Seng TECH ETF
+MAHKTECH.NS  ￼
 
-HNGSNGBEES.NS
+Nippon India ETF Hang Seng BeES
+HNGSNGBEES.NS  ￼
 
-CPSEETF.NS
+CPSE ETF
+CPSEETF.NS  ￼
 
-PSUBNKBEES.NS
+Nippon India ETF Nifty PSU Bank BeES
+PSUBNKBEES.NS  ￼
 
-MOREALTY.NS
+Motilal Oswal Nifty Realty ETF
+MOREALTY.NS  ￼
 
-AUTOBEES.NS
+Nippon India Nifty Auto ETF
+AUTOBEES.NS  ￼
 
-MODEFENCE.NS
+Motilal Oswal Nifty India Defence ETF
+MODEFENCE.NS  ￼
 
-MID150BEES.NS
+Nippon India ETF Nifty Midcap 150
+MID150BEES.NS  ￼
 
-HDFCSML250.NS
+HDFC Nifty Smallcap 250 ETF
+HDFCSML250.NS  ￼
 
-METALIETF.NS
+ICICI Prudential Nifty Metal ETF
+METALIETF.NS  ￼
 
-OILIETF.NS
+ICICI Prudential Nifty Oil & Gas ETF
+OILIETF.NS  ￼
 
-FMCGIETF.NS
+ICICIFMCG
+FMCGIETF.NS  ￼
 
-HDFCQUAL.NS
+HDFC NIFTY100 Quality 30 ETF
+HDFCQUAL.NS  ￼
 
-CONSUMBEES.NS
+NIP IND ETF CONSUMPTION
+CONSUMBEES.NS  ￼
 
-INFRABEES.NS
+Nippon India ETF Nifty Infrastructure BeES
+INFRABEES.NS  ￼
 
-MONQ50.NS
+Motilal Oswal Nasdaq Q 50 ETF
+MONQ50.NS  ￼
 
+Mirae Asset S&P 500 Top 50 ETF
 MASPTOP50.NS
