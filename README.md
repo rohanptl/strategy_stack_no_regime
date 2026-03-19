@@ -1,1 +1,2 @@
 # strategy_stack_no_regime
+python strategy_stack_no_regime.py   --mode allocate   --universe "./WealthfrontETFs.txt"   --holdings "./holdings.csv"   --export-prefix wealthfront_no_regime --start=2025-01-01

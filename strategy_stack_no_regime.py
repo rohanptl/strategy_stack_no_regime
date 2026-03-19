@@ -404,7 +404,28 @@ def score_and_allocate(
 ) -> pd.DataFrame:
     if metrics.empty:
         return pd.DataFrame(
-            {"ticker": [cash_ticker], "target_weight": [1.0], "raw_score": [0.0]}
+            {
+                "ticker": [cash_ticker],
+                "target_weight": [1.0],
+                "raw_score": [0.0],
+                "last_close": [np.nan],
+                "sma50": [np.nan],
+                "sma200": [np.nan],
+                "ema10": [np.nan],
+                "macd": [np.nan],
+                "macd_signal": [np.nan],
+                "macd_hist": [np.nan],
+                "weekly_macd_hist": [np.nan],
+                "atr15": [np.nan],
+                "realized_vol20": [np.nan],
+                "ret_6m": [np.nan],
+                "breakout_89d": [False],
+                "exit_13d": [False],
+                "above_ema10": [False],
+                "above_sma200": [False],
+                "sma50_gt_sma200": [False],
+                "cash_like": [True],
+            }
         )
     
     df = metrics.copy()
@@ -593,7 +614,7 @@ def allocation_mode(
     print_progress("Reconciling current holdings against target weights")
     current = derive_current_weights(holdings, close_px)
     out = alloc.merge(current, on="ticker", how="left")
-    out = out.merge(metrics, on="ticker", how="left")
+    
     out["current_weight"] = out["current_weight"].fillna(0.0)
     out["delta_weight"] = out["target_weight"] - out["current_weight"]
     out["current_alloc_pct"] = out["current_weight"] * 100.0
