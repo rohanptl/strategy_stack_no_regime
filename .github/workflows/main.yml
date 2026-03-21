@@ -190,9 +190,9 @@ jobs:
           from email.message import EmailMessage
           from mimetypes import guess_type
 
-          sender = ${{ secrets.GMAIL_USERNAME }}
+          sender = "prtech9524@gmail.com"
           password = ${{ secrets.GMAIL_APP_PASSWORD }}
-          recipient = ${{ secrets.PERSONAL_EMAIL }}
+          recipient = "prtech9524@gmail.com"
 
           subject = "Wealthfront weekly allocation report"
           if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
