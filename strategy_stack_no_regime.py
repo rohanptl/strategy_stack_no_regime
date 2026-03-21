@@ -29,8 +29,14 @@ Important model choice
 ----------------------
 This version does NOT use a broad market regime filter such as SPY > 200-day SMA.
 Selection is always driven by ETF-level strength, trend quality, breakout behavior,
-and volatility-aware scoring. SGOV is only used as residual cash if not enough
-qualified ETFs are available.
+and volatility-aware scoring.
+
+This version also separates:
+1) selection = which ETFs deserve attention
+2) execution = whether the ETF is a BUY NOW, WAIT FOR PULLBACK, or DO NOT BUY
+
+Capital is only deployed into ETFs labeled BUY NOW. Any unallocated capital is
+held in SGOV until a valid entry appears.
 
 Why 6-month ranking is an assumption
 ------------------------------------
@@ -109,6 +115,8 @@ DEFAULT_EXIT_DAYS = 13
 DEFAULT_ATR_DAYS = 15
 DEFAULT_VOL_DAYS = 20
 DEFAULT_MOMENTUM_LOOKBACK_DAYS = 126  # ~6 months
+DEFAULT_PULLBACK_EMA_BUFFER = 0.03   # within 3% of 10EMA counts as pullback zone
+DEFAULT_EXTENDED_FROM_EMA = 0.08     # >8% above 10EMA counts as extended / wait
 
 REBALANCE_MAP = {
     "W": "W-FRI",
@@ -359,6 +367,89 @@ def build_snapshot_metrics(
     return pd.DataFrame(rows)
 
 
+
+def classify_entry_signal(row: pd.Series) -> str:
+    """
+    Assign one of:
+    - BUY NOW
+    - WAIT FOR PULLBACK
+    - DO NOT BUY
+    """
+    if bool(row.get("cash_like", False)):
+        return "BUY NOW"
+
+    above_sma200 = bool(row.get("above_sma200", False))
+    sma50_gt_sma200 = bool(row.get("sma50_gt_sma200", False))
+    above_ema10 = bool(row.get("above_ema10", False))
+    breakout_89d = bool(row.get("breakout_89d", False))
+    exit_13d = bool(row.get("exit_13d", False))
+
+    macd_hist = row.get("macd_hist", np.nan)
+    weekly_macd_hist = row.get("weekly_macd_hist", np.nan)
+    last_close = row.get("last_close", np.nan)
+    ema10 = row.get("ema10", np.nan)
+
+    if (not above_sma200) or exit_13d:
+        return "DO NOT BUY"
+
+    if pd.isna(last_close) or pd.isna(ema10) or ema10 <= 0:
+        return "WAIT FOR PULLBACK"
+
+    dist_from_ema10 = (float(last_close) / float(ema10)) - 1.0
+    strong_trend = above_sma200 and sma50_gt_sma200
+    positive_momentum = (pd.notna(macd_hist) and macd_hist > 0) and (pd.notna(weekly_macd_hist) and weekly_macd_hist > 0)
+
+    if strong_trend and positive_momentum and breakout_89d:
+        return "BUY NOW"
+
+    if strong_trend and positive_momentum and above_ema10 and dist_from_ema10 <= DEFAULT_PULLBACK_EMA_BUFFER:
+        return "BUY NOW"
+
+    if strong_trend and positive_momentum and dist_from_ema10 > DEFAULT_EXTENDED_FROM_EMA:
+        return "WAIT FOR PULLBACK"
+
+    if strong_trend:
+        return "WAIT FOR PULLBACK"
+
+    return "DO NOT BUY"
+
+
+def apply_entry_labels_and_allocate(
+    df: pd.DataFrame,
+    cash_ticker: str,
+    max_alloc: float,
+) -> pd.DataFrame:
+    """
+    Convert selected/model weights into executable target weights.
+    Only ETFs labeled BUY NOW receive capital.
+    """
+    df = df.copy()
+    df["entry_label"] = np.where(df.get("cash_like", False), "BUY NOW", "DO NOT BUY")
+
+    selected_mask = df["selected"] & (~df["cash_like"])
+    if selected_mask.any():
+        df.loc[selected_mask, "entry_label"] = df.loc[selected_mask].apply(classify_entry_signal, axis=1)
+
+    df["model_target_weight"] = df["target_weight"]
+    df["target_weight"] = 0.0
+
+    buy_now = df[(df["selected"]) & (~df["cash_like"]) & (df["entry_label"] == "BUY NOW")].copy()
+    if buy_now.empty:
+        df.loc[df["ticker"] == cash_ticker, "target_weight"] = 1.0
+    else:
+        w = buy_now.set_index("ticker")["model_target_weight"].clip(lower=0.0)
+        if w.sum() > 0:
+            w = capped_normalize(w, max_cap=max_alloc, uncapped_tickers=set())
+            for t, wt in w.items():
+                df.loc[df["ticker"] == t, "target_weight"] = float(wt)
+        residual = 1.0 - float(df["target_weight"].sum())
+        df.loc[df["ticker"] == cash_ticker, "target_weight"] += residual
+
+    total = float(df["target_weight"].sum())
+    if total > 0:
+        df["target_weight"] = df["target_weight"] / total
+    return df
+
 def capped_normalize(weights: pd.Series, max_cap: float, uncapped_tickers: Optional[set] = None) -> pd.Series:
     """
     Normalize to 100% while capping all but uncapped tickers.
@@ -482,11 +573,15 @@ def score_and_allocate(
 
     if selected_non_cash.empty:
         df.loc[df["ticker"] == cash_ticker, "target_weight"] = 1.0
+        df["entry_label"] = np.where(df["cash_like"], "BUY NOW", "DO NOT BUY")
+        df["model_target_weight"] = df["target_weight"]
         return df
 
     w = selected_non_cash.set_index("ticker")["raw_score"].clip(lower=0.0)
     if w.sum() <= 0:
         df.loc[df["ticker"] == cash_ticker, "target_weight"] = 1.0
+        df["entry_label"] = np.where(df["cash_like"], "BUY NOW", "DO NOT BUY")
+        df["model_target_weight"] = df["target_weight"]
         return df
 
     w = capped_normalize(w, max_cap=max_alloc, uncapped_tickers=set())
@@ -498,42 +593,48 @@ def score_and_allocate(
 
     total = float(df["target_weight"].sum())
     df["target_weight"] = df["target_weight"] / total
+    df = apply_entry_labels_and_allocate(df, cash_ticker=cash_ticker, max_alloc=max_alloc)
     return df
 
 
 def rationale_for_row(row: pd.Series, cash_ticker: str) -> str:
     t = row["ticker"]
+    entry_label = row.get("entry_label", "")
     if t == cash_ticker:
         if row["target_weight"] > 0:
-            return f"{cash_ticker} used as residual cash sleeve when not enough ETFs qualify; uncapped."
-        return f"{cash_ticker} available as defensive sleeve but not currently needed."
+            return f"{cash_ticker} holds residual cash while selected ETFs wait for valid entry signals; uncapped."
+        return f"{cash_ticker} available as cash sleeve but not currently needed."
 
     reasons = []
-    if row["above_sma200"]:
+    if row.get("above_sma200", False):
         reasons.append("above 200SMA")
-    if row["sma50_gt_sma200"]:
+    if row.get("sma50_gt_sma200", False):
         reasons.append("50SMA above 200SMA")
-    if row["above_ema10"]:
+    if row.get("above_ema10", False):
         reasons.append("holding above 10EMA")
-    if row["macd_hist"] > 0:
+    if row.get("macd_hist", np.nan) > 0:
         reasons.append("positive MACD histogram")
-    if row["weekly_macd_hist"] > 0:
+    if row.get("weekly_macd_hist", np.nan) > 0:
         reasons.append("positive weekly momentum proxy")
-    if row["breakout_89d"]:
+    if row.get("breakout_89d", False):
         reasons.append("at 89-day breakout")
-    if pd.notna(row["ret_6m"]):
+    if pd.notna(row.get("ret_6m", np.nan)):
         reasons.append(f"6m return {row['ret_6m']:.1%}")
-    if pd.notna(row["realized_vol20"]):
+    if pd.notna(row.get("realized_vol20", np.nan)):
         reasons.append(f"20d vol {row['realized_vol20']:.1%}")
 
-    if row["target_weight"] > 0:
-        return "Selected because " + ", ".join(reasons) + "."
+    if bool(row.get("selected", False)) and entry_label == "BUY NOW":
+        return "Selected and executable now because " + ", ".join(reasons) + "."
+    if bool(row.get("selected", False)) and entry_label == "WAIT FOR PULLBACK":
+        return "Selected, but wait for pullback because trend quality is acceptable while current entry timing is not ideal."
+    if bool(row.get("selected", False)) and entry_label == "DO NOT BUY":
+        return "Selected on ranking, but do not buy because the current entry signal is weak or invalid."
     fails = []
-    if not row["above_sma200"]:
+    if not row.get("above_sma200", False):
         fails.append("below 200SMA")
-    if row["exit_13d"]:
+    if row.get("exit_13d", False):
         fails.append("13-day exit condition active")
-    if row["raw_score"] <= 0:
+    if row.get("raw_score", 0.0) <= 0:
         fails.append("composite score not strong enough")
     if not fails:
         fails.append("did not make final top-ranked set")
@@ -637,10 +738,11 @@ def allocation_mode(
         "above_ema10", "above_sma200", "sma50_gt_sma200",
         "macd", "macd_signal", "macd_hist", "weekly_macd_hist",
         "breakout_89d", "exit_13d", "raw_score",
+        "selected", "entry_label", "model_target_weight",
         "current_alloc_pct", "target_alloc_pct", "delta_pct_points",
         "action", "rationale",
     ]
-    action_cols = ["ticker", "current_alloc_pct", "target_alloc_pct", "delta_pct_points", "action", "rationale"]
+    action_cols = ["ticker", "entry_label", "current_alloc_pct", "target_alloc_pct", "delta_pct_points", "action", "rationale"]
 
     print_progress("Writing output files")
     action_view[metrics_cols].to_csv(f"{export_prefix}_full_metrics.csv", index=False)
@@ -652,6 +754,7 @@ def allocation_mode(
     print(f"As of: {asof.date()}")
     print("Market regime filter: DISABLED")
     print("Selection is driven by ETF-level trend, momentum, breakout, and volatility scoring.")
+    print("Only ETFs labeled BUY NOW receive capital; WAIT FOR PULLBACK and DO NOT BUY stay in SGOV.")
     print()
     print(action_view[action_cols].to_string(index=False))
     print()
@@ -691,7 +794,7 @@ def run_schedule_backtest(
     top_k: int,
     start: str,
     end: str,
-) -> Tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.Series, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Rebalance at schedule dates using information available at each rebalance close.
     Apply new weights from next trading day open proxy => implemented as next close-to-close
@@ -716,6 +819,7 @@ def run_schedule_backtest(
     equity.iloc[0] = 1.0
     turnovers = []
     weights_history = []
+    entry_label_history = []
 
     pending_weights = weights.copy()
 
@@ -750,14 +854,26 @@ def run_schedule_backtest(
             pending_weights = new_weights
             weights_history.append({"date": dt, **new_weights.to_dict()})
 
+            selected_non_cash = alloc[(alloc["selected"]) & (~alloc["cash_like"])].copy()
+            entry_counts = selected_non_cash["entry_label"].value_counts()
+            entry_label_history.append({
+                "date": dt,
+                "selected_non_cash_count": int(len(selected_non_cash)),
+                "buy_now_count": int(entry_counts.get("BUY NOW", 0)),
+                "wait_for_pullback_count": int(entry_counts.get("WAIT FOR PULLBACK", 0)),
+                "do_not_buy_count": int(entry_counts.get("DO NOT BUY", 0)),
+                "sgov_weight": float(alloc.loc[alloc["ticker"] == cash_ticker, "target_weight"].sum()),
+            })
+
         # Apply pending weights on next bar
         weights = pending_weights.copy()
 
     equity = equity.ffill()
     turnover_df = pd.DataFrame(turnovers)
     weights_df = pd.DataFrame(weights_history)
+    entry_labels_df = pd.DataFrame(entry_label_history)
     print_progress(f"Finished {schedule_name} backtest")
-    return equity, turnover_df, weights_df
+    return equity, turnover_df, weights_df, entry_labels_df
 
 
 def backtest_mode(
@@ -792,11 +908,12 @@ def backtest_mode(
     equity_curves = {}
     turnover_tables = {}
     weight_tables = {}
+    entry_label_tables = {}
     summary_rows = []
 
     for label, code in schedules.items():
         print_progress(f"Running {label.lower()} rebalance comparison")
-        eq, to_df, w_df = run_schedule_backtest(
+        eq, to_df, w_df, e_df = run_schedule_backtest(
             universe=universe,
             ohlcv=ohlcv,
             close_px=close_px,
@@ -809,8 +926,19 @@ def backtest_mode(
         equity_curves[label] = eq
         turnover_tables[label] = to_df
         weight_tables[label] = w_df
+        entry_label_tables[label] = e_df
 
         stats = metrics_from_equity_curve(eq, to_df["turnover"] if not to_df.empty else pd.Series(dtype=float))
+        if not e_df.empty:
+            stats["Avg BUY NOW Count"] = float(e_df["buy_now_count"].mean())
+            stats["Avg WAIT Count"] = float(e_df["wait_for_pullback_count"].mean())
+            stats["Avg DO NOT BUY Count"] = float(e_df["do_not_buy_count"].mean())
+            stats["Avg SGOV Weight"] = float(e_df["sgov_weight"].mean())
+        else:
+            stats["Avg BUY NOW Count"] = 0.0
+            stats["Avg WAIT Count"] = 0.0
+            stats["Avg DO NOT BUY Count"] = 0.0
+            stats["Avg SGOV Weight"] = 0.0
         stats["Schedule"] = label
         summary_rows.append(stats)
 
@@ -831,7 +959,9 @@ def backtest_mode(
         equity_curves[benchmark] = eq
 
     summary = pd.DataFrame(summary_rows)[
-        ["Schedule", "Total Return", "CAGR", "Annual Vol", "Sharpe", "Max Drawdown", "Calmar", "Avg Turnover/Rebalance", "Num Rebalances"]
+        ["Schedule", "Total Return", "CAGR", "Annual Vol", "Sharpe", "Max Drawdown", "Calmar",
+         "Avg Turnover/Rebalance", "Num Rebalances",
+         "Avg BUY NOW Count", "Avg WAIT Count", "Avg DO NOT BUY Count", "Avg SGOV Weight"]
     ].sort_values("CAGR", ascending=False)
 
     equity_df = pd.DataFrame(equity_curves)
@@ -844,22 +974,27 @@ def backtest_mode(
         df.to_csv(f"{export_prefix}_{label.lower()}_turnover.csv", index=False)
     for label, df in weight_tables.items():
         df.to_csv(f"{export_prefix}_{label.lower()}_weights_history.csv", index=False)
+    for label, df in entry_label_tables.items():
+        df.to_csv(f"{export_prefix}_{label.lower()}_entry_labels.csv", index=False)
 
     print("=" * 110)
     print("BACKTEST SUMMARY: WEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ, DIA)")
     print("=" * 110)
     display = summary.copy()
-    for c in ["Total Return", "CAGR", "Annual Vol", "Sharpe", "Max Drawdown", "Calmar", "Avg Turnover/Rebalance"]:
+    for c in ["Total Return", "CAGR", "Annual Vol", "Max Drawdown", "Avg Turnover/Rebalance", "Avg SGOV Weight"]:
         if c in display.columns:
-            display[c] = display[c].map(lambda x: f"{x:.2%}" if isinstance(x, (float, np.floating)) and c != "Sharpe" and c != "Calmar" else x)
+            display[c] = display[c].map(lambda x: f"{x:.2%}" if isinstance(x, (float, np.floating)) else x)
     # Sharpe & Calmar as ratios
     display["Sharpe"] = summary["Sharpe"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     display["Calmar"] = summary["Calmar"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    for c in ["Avg BUY NOW Count", "Avg WAIT Count", "Avg DO NOT BUY Count"]:
+        if c in display.columns:
+            display[c] = summary[c].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     print(display.to_string(index=False))
     print()
     print(f"Wrote: {export_prefix}_backtest_summary.csv")
     print(f"Wrote: {export_prefix}_equity_curves.csv")
-    print(f"Wrote schedule turnover and weights-history CSVs")
+    print(f"Wrote schedule turnover, weights-history, and entry-label diagnostic CSVs")
 
 
 def build_parser() -> argparse.ArgumentParser:
