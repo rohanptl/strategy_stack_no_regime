@@ -13,7 +13,6 @@ on:
         default: "wealthfront_alloc"
 
   schedule:
-    # Every Sunday at 13:00 UTC = 9:00 AM America/New_York during EDT
     - cron: "0 13 * * 0"
 
 jobs:
@@ -85,9 +84,7 @@ jobs:
           if not csvs:
               raise SystemExit("No CSV files were generated in out/")
 
-          allocation_candidates = [
-              p for p in csvs if p.endswith("_allocation_changes.csv")
-          ]
+          allocation_candidates = [p for p in csvs if p.endswith("_allocation_changes.csv")]
           metrics_candidates = [
               p for p in csvs
               if p.endswith("_full_metrics.csv") or p.endswith("_metrics_targets.csv")
@@ -101,9 +98,9 @@ jobs:
           rename_map = {}
           for c in alloc.columns:
               cl = c.strip().lower()
-              if cl in ("ticker",):
+              if cl == "ticker":
                   rename_map[c] = "ticker"
-              elif cl in ("action",):
+              elif cl == "action":
                   rename_map[c] = "action"
               elif cl in ("current_alloc_%", "current_alloc_pct", "current allocation %"):
                   rename_map[c] = "current_alloc"
