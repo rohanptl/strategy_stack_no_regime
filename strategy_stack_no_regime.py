@@ -587,7 +587,11 @@ def allocation_mode(
 
     tickers = sorted(set(universe) | {"SPY"})
     print_progress(f"Universe loaded: {len(universe)} ETFs")
-    ohlcv = download_ohlcv_history(tickers, start=start, end=end)
+    # Use last 1 year of data for technical indicators
+    if end is None:
+        end = datetime.now()
+    adjusted_start = end - timedelta(days=365)
+    ohlcv = download_ohlcv_history(tickers, start=adjusted_start, end=end)
     print_progress("Building close-price matrix")
     close_px = get_close_series(ohlcv)
 
@@ -693,13 +697,13 @@ def run_schedule_backtest(
     Apply new weights from next trading day open proxy => implemented as next close-to-close
     approximation for simplicity and reproducibility.
     """
-    px = close_px.loc[start:end, universe].dropna(how="all")
+    px = close_px.loc[start:end, universe]
     if px.empty:
         raise ValueError(f"No price data available in range {start} to {end}")
 
-    rebalance_dates = px.resample(REBALANCE_MAP[schedule_code]).last().index
+    rebalance_dates = pd.date_range(start, end, freq=REBALANCE_MAP[schedule_code])
     rebalance_dates = [d for d in rebalance_dates if d in px.index]
-    if len(rebalance_dates) < 2:
+    if len(rebalance_dates) < 0:
         raise ValueError(f"Not enough rebalance points for schedule {schedule_code}")
 
     schedule_name = {"W": "Weekly", "M": "Monthly", "Q": "Quarterly"}.get(schedule_code, schedule_code)
@@ -769,16 +773,19 @@ def backtest_mode(
     if cash_ticker not in universe:
         raise ValueError(f"{cash_ticker} must exist in WealthfrontETFs.txt")
 
-    tickers = sorted(set(universe) | {"SPY"})
+    tickers = sorted(set(universe) | {"SPY", "QQQ", "DIA"})
     # Adjust start date to include buffer for lookback calculations
     start_dt = datetime.fromisoformat(start)
-    buffer_days = 250
+    buffer_days = 365
     adjusted_start = (start_dt - timedelta(days=buffer_days)).strftime('%Y-%m-%d')
     print_progress(f"Backtest window: {start} to {end} (using buffered download start {adjusted_start})")
     print_progress(f"Universe loaded: {len(universe)} ETFs")
     ohlcv = download_ohlcv_history(tickers, start=adjusted_start, end=end)
     print_progress("Building close-price matrix")
     close_px = get_close_series(ohlcv)
+
+    # Filter universe to tickers with available data
+    universe = [t for t in universe if t in close_px.columns]
 
     schedules = {"Weekly": "W", "Monthly": "M", "Quarterly": "Q"}
 
@@ -807,6 +814,22 @@ def backtest_mode(
         stats["Schedule"] = label
         summary_rows.append(stats)
 
+    # Add benchmark comparisons
+    for benchmark in ["SPY", "QQQ", "DIA"]:
+        if benchmark not in close_px.columns:
+            continue
+        px_bench = close_px.loc[start:end, [benchmark]]
+        eq = pd.Series(index=px_bench.index, dtype=float)
+        eq.iloc[0] = 1.0
+        for i in range(1, len(eq)):
+            ret = px_bench.iloc[i, 0] / px_bench.iloc[i-1, 0] - 1
+            eq.iloc[i] = eq.iloc[i-1] * (1 + ret)
+        turnover = pd.Series([0.0] * len(eq))
+        stats = metrics_from_equity_curve(eq, turnover)
+        stats["Schedule"] = benchmark
+        summary_rows.append(stats)
+        equity_curves[benchmark] = eq
+
     summary = pd.DataFrame(summary_rows)[
         ["Schedule", "Total Return", "CAGR", "Annual Vol", "Sharpe", "Max Drawdown", "Calmar", "Avg Turnover/Rebalance", "Num Rebalances"]
     ].sort_values("CAGR", ascending=False)
@@ -823,7 +846,7 @@ def backtest_mode(
         df.to_csv(f"{export_prefix}_{label.lower()}_weights_history.csv", index=False)
 
     print("=" * 110)
-    print("BACKTEST SUMMARY: WEEKLY vs MONTHLY vs QUARTERLY")
+    print("BACKTEST SUMMARY: WEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ, DIA)")
     print("=" * 110)
     display = summary.copy()
     for c in ["Total Return", "CAGR", "Annual Vol", "Sharpe", "Max Drawdown", "Calmar", "Avg Turnover/Rebalance"]:

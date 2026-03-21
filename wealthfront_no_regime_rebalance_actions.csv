@@ -1,25 +1,25 @@
 ticker,current_alloc_pct,target_alloc_pct,delta_pct_points,action,rationale
-IXC,0.0,12.229259954342115,12.229259954342115,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, positive weekly momentum proxy, at 89-day breakout, 6m return 36.9%, 20d vol 15.1%."
-XOP,0.0,11.98159328465718,11.98159328465718,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, positive weekly momentum proxy, at 89-day breakout, 6m return 33.3%, 20d vol 24.8%."
-AMLP,0.9404691330096665,10.49723326153018,9.556764128520514,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, at 89-day breakout, 6m return 15.5%, 20d vol 9.6%."
-MLPA,6.463303666148357,10.456185660902934,3.992881994754577,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, at 89-day breakout, 6m return 14.3%, 20d vol 10.2%."
-OIH,0.0,9.607905397235166,9.607905397235166,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, 6m return 54.5%, 20d vol 25.8%."
-EWY,0.0,9.337965604297295,9.337965604297295,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, 6m return 70.1%, 20d vol 69.3%."
-TAN,0.0,9.327673927485302,9.327673927485302,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, 6m return 32.7%, 20d vol 33.5%."
-EWM,0.0,9.18087966651436,9.18087966651436,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, 6m return 16.9%, 20d vol 16.1%."
-EWS,0.0,8.70773656446655,8.70773656446655,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, 6m return 0.6%, 20d vol 18.8%."
-DVYE,0.0,8.673566678568934,8.673566678568934,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, 6m return 15.4%, 20d vol 19.3%."
-MTUM,5.848889013383241,0.0,-5.848889013383241,DECREASE,Not selected because did not make final top-ranked set.
-PRF,23.107682136660205,0.0,-23.107682136660205,DECREASE,Not selected because did not make final top-ranked set.
-VHT,4.838751979239824,0.0,-4.838751979239824,DECREASE,Not selected because did not make final top-ranked set.
-JEPQ,8.055534641205965,0.0,-8.055534641205965,DECREASE,Not selected because did not make final top-ranked set.
-RSP,1.145892611792892,0.0,-1.145892611792892,DECREASE,Not selected because did not make final top-ranked set.
-JMOM,3.046531756873244,0.0,-3.046531756873244,DECREASE,Not selected because did not make final top-ranked set.
-JQUA,7.962795703471897,0.0,-7.962795703471897,DECREASE,Not selected because did not make final top-ranked set.
-ETHA,5.3665275336466145,0.0,-5.3665275336466145,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
-IBIT,5.213852155811867,0.0,-5.213852155811867,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
-IGV,3.0268815312584083,0.0,-3.0268815312584083,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
-INDA,5.574091342572124,0.0,-5.574091342572124,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
-ITOT,9.687752449763416,0.0,-9.687752449763416,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
-SPLV,7.685560260756956,0.0,-7.685560260756956,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
-SGOV,2.035484084405342,0.0,-2.035484084405342,DECREASE,SGOV available as defensive sleeve but not currently needed.
+XLE,0.0,12.863129862703815,12.863129862703815,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, positive weekly momentum proxy, at 89-day breakout, 6m return 37.1%, 20d vol 15.4%."
+XOP,0.0,12.753210989196498,12.753210989196498,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, positive weekly momentum proxy, at 89-day breakout, 6m return 38.4%, 20d vol 24.9%."
+IXC,0.0,11.178961635083619,11.178961635083619,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive MACD histogram, positive weekly momentum proxy, 6m return 38.3%, 20d vol 14.9%."
+AMLP,0.9561133326064267,11.067961941707912,10.111848609101484,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, at 89-day breakout, 6m return 17.9%, 20d vol 9.7%."
+OIH,0.0,10.189360303954686,10.189360303954686,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, 6m return 54.4%, 20d vol 26.5%."
+MLPA,6.56583616237201,9.294614877436508,2.728778715064499,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, holding above 10EMA, positive weekly momentum proxy, 6m return 16.9%, 20d vol 10.5%."
+EWY,0.0,8.852878136249362,8.852878136249362,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, positive weekly momentum proxy, 6m return 61.3%, 20d vol 70.5%."
+EWM,0.0,8.707893773859281,8.707893773859281,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, positive MACD histogram, 6m return 15.0%, 20d vol 16.9%."
+EIS,0.0,7.591947707941089,7.591947707941089,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, 6m return 27.2%, 20d vol 29.0%."
+TAN,0.0,7.500040771867213,7.500040771867213,INCREASE,"Selected because above 200SMA, 50SMA above 200SMA, 6m return 27.1%, 20d vol 34.7%."
+SGOV,2.066643280836759,2.220446049250313e-14,-2.066643280836737,DECREASE,SGOV used as residual cash sleeve when not enough ETFs qualify; uncapped.
+ETHA,5.393027526217691,0.0,-5.393027526217691,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
+IBIT,5.202050671736883,0.0,-5.202050671736883,DECREASE,"Not selected because below 200SMA, composite score not strong enough."
+IGV,3.01353192678509,0.0,-3.01353192678509,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
+INDA,5.555887224292994,0.0,-5.555887224292994,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
+ITOT,9.661399013083525,0.0,-9.661399013083525,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
+JEPQ,8.021479052583425,0.0,-8.021479052583425,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
+JMOM,3.0280597967417453,0.0,-3.0280597967417453,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
+JQUA,7.9681020237958995,0.0,-7.9681020237958995,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
+MTUM,5.7783594983645195,0.0,-5.7783594983645195,DECREASE,"Not selected because below 200SMA, 13-day exit condition active, composite score not strong enough."
+PRF,23.132068339145782,0.0,-23.132068339145782,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
+RSP,1.1428800140720174,0.0,-1.1428800140720174,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
+SPLV,7.672921113337362,0.0,-7.672921113337362,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
+VHT,4.841641024027858,0.0,-4.841641024027858,DECREASE,"Not selected because 13-day exit condition active, composite score not strong enough."
