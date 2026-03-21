@@ -1,0 +1,42 @@
+name: Weekly Portfolio Allocation
+
+on:
+  schedule:
+    - cron: "0 10 * * 0"
+  workflow_dispatch:
+
+jobs:
+  allocate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance openpyxl
+
+      - name: Run allocation
+        run: |
+          python strategy_stack_no_regime.py \
+            --mode allocate \
+            --universe ./WealthfrontETFs.txt \
+            --holdings ./holdings.csv \
+            --export-prefix weekly_allocation
+
+      - name: Commit allocation outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add weekly_allocation_full_metrics.csv weekly_allocation_rebalance_actions.csv
+          git diff --cached --quiet || git commit -m "Update weekly allocation outputs"
+          git push
