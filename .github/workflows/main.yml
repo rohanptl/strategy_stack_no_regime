@@ -5,11 +5,13 @@ on:
     - cron: "0 10 * * 0"
   workflow_dispatch:
 
+concurrency:
+  group: weekly-portfolio-allocation
+  cancel-in-progress: true
+
 jobs:
   allocate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Check out repo
@@ -33,10 +35,98 @@ jobs:
             --holdings ./holdings.csv \
             --export-prefix weekly_allocation
 
-      - name: Commit allocation outputs
+      - name: Build email summary
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add weekly_allocation_full_metrics.csv weekly_allocation_rebalance_actions.csv
-          git diff --cached --quiet || git commit -m "Update weekly allocation outputs"
-          git push
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+
+          actions = pd.read_csv("weekly_allocation_rebalance_actions.csv")
+          metrics = pd.read_csv("weekly_allocation_full_metrics.csv")
+
+          def fmt_pct(x):
+              try:
+                  return f"{float(x):.2f}%"
+              except Exception:
+                  return str(x)
+
+          top_buys = actions[actions["entry_label"] == "BUY NOW"].copy() if "entry_label" in actions.columns else pd.DataFrame()
+          top_wait = actions[actions["entry_label"] == "WAIT FOR PULLBACK"].copy() if "entry_label" in actions.columns else pd.DataFrame()
+          top_no = actions[actions["entry_label"] == "DO NOT BUY"].copy() if "entry_label" in actions.columns else pd.DataFrame()
+
+          sgov_alloc = ""
+          if "ticker" in actions.columns and "target_alloc_pct" in actions.columns:
+              sgov = actions[actions["ticker"] == "SGOV"]
+              if not sgov.empty:
+                  sgov_alloc = fmt_pct(sgov.iloc[0]["target_alloc_pct"])
+
+          summary_lines = []
+          summary_lines.append("Weekly portfolio allocation run completed.")
+          summary_lines.append("")
+          if sgov_alloc:
+              summary_lines.append(f"SGOV target allocation: {sgov_alloc}")
+              summary_lines.append("")
+
+          summary_lines.append(f"BUY NOW count: {len(top_buys)}")
+          if not top_buys.empty:
+              summary_lines.append("Top BUY NOW ideas:")
+              cols = [c for c in ["ticker", "target_alloc_pct", "delta_pct_points"] if c in top_buys.columns]
+              for _, row in top_buys.head(10)[cols].iterrows():
+                  line = f"- {row['ticker']}"
+                  if "target_alloc_pct" in row:
+                      line += f", target {fmt_pct(row['target_alloc_pct'])}"
+                  if "delta_pct_points" in row:
+                      line += f", change {row['delta_pct_points']:+.2f} pts"
+                  summary_lines.append(line)
+          summary_lines.append("")
+
+          summary_lines.append(f"WAIT FOR PULLBACK count: {len(top_wait)}")
+          if not top_wait.empty:
+              summary_lines.append("Top WAIT FOR PULLBACK names:")
+              cols = [c for c in ["ticker", "target_alloc_pct"] if c in top_wait.columns]
+              for _, row in top_wait.head(10)[cols].iterrows():
+                  line = f"- {row['ticker']}"
+                  if "target_alloc_pct" in row:
+                      line += f", model target {fmt_pct(row['target_alloc_pct'])}"
+                  summary_lines.append(line)
+          summary_lines.append("")
+
+          summary_lines.append(f"DO NOT BUY count: {len(top_no)}")
+          if not top_no.empty:
+              summary_lines.append("Top DO NOT BUY names:")
+              cols = [c for c in ["ticker", "target_alloc_pct"] if c in top_no.columns]
+              for _, row in top_no.head(10)[cols].iterrows():
+                  line = f"- {row['ticker']}"
+                  if "target_alloc_pct" in row:
+                      line += f", model target {fmt_pct(row['target_alloc_pct'])}"
+                  summary_lines.append(line)
+
+          Path("email_body.txt").write_text("\n".join(summary_lines), encoding="utf-8")
+          print(Path("email_body.txt").read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload allocation outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-allocation-output
+          path: |
+            weekly_allocation_full_metrics.csv
+            weekly_allocation_rebalance_actions.csv
+            email_body.txt
+          if-no-files-found: error
+
+      - name: Send email with Gmail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: Weekly Portfolio Allocation
+          to: ${{ secrets.PERSONAL_EMAIL }}
+          from: 'Portfolio Allocator <${{ secrets.GMAIL_USERNAME }}>'
+          body: file://email_body.txt
+          attachments: |
+            weekly_allocation_full_metrics.csv
+            weekly_allocation_rebalance_actions.csv
