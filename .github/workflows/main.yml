@@ -2,10 +2,19 @@ name: Wealthfront Allocate + Email
 
 on:
   workflow_dispatch:
+    inputs:
+      top_k:
+        description: "Number of ETFs to target"
+        required: false
+        default: "5"
+      export_prefix:
+        description: "Output file prefix"
+        required: false
+        default: "wealthfront_alloc"
+
   schedule:
-    # Every Sunday at 9:00 AM America/New_York
+    # Every Sunday at 13:00 UTC = 9:00 AM America/New_York during EDT
     - cron: "0 13 * * 0"
-      timezone: "America/New_York"
 
 jobs:
   allocate-and-email:
@@ -18,17 +27,18 @@ jobs:
       SCRIPT_PATH: strategy_stack_no_regime.py
       UNIVERSE_FILE: WealthfrontETFs.txt
       HOLDINGS_FILE: holdings.csv
-      EXPORT_PREFIX: wealthfront_alloc
+      DEFAULT_TOP_K: 5
+      DEFAULT_EXPORT_PREFIX: wealthfront_alloc
       EMAIL_TO: ${{ secrets.EMAIL_TO }}
       GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
@@ -36,7 +46,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy yfinance tabulate openpyxl
+          pip install pandas numpy yfinance openpyxl
+
+      - name: Resolve runtime parameters
+        id: params
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "top_k=${{ inputs.top_k }}" >> $GITHUB_OUTPUT
+            echo "export_prefix=${{ inputs.export_prefix }}" >> $GITHUB_OUTPUT
+          else
+            echo "top_k=${DEFAULT_TOP_K}" >> $GITHUB_OUTPUT
+            echo "export_prefix=${DEFAULT_EXPORT_PREFIX}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create output folder
         run: mkdir -p out
@@ -47,17 +69,8 @@ jobs:
             --mode allocate \
             --universe "$UNIVERSE_FILE" \
             --holdings "$HOLDINGS_FILE" \
-            --top-k 5 \
-            --export-prefix "out/$EXPORT_PREFIX"
-
-      - name: Normalize filenames
-        shell: bash
-        run: |
-          ls -lah out
-          # If your script writes timestamped files, keep them as-is.
-          # If it writes deterministic files, this still works.
-          echo "Generated files:"
-          find out -maxdepth 1 -type f -name "*.csv" -print
+            --top-k "${{ steps.params.outputs.top_k }}" \
+            --export-prefix "out/${{ steps.params.outputs.export_prefix }}"
 
       - name: Build email body and collect attachments
         run: |
@@ -73,10 +86,8 @@ jobs:
           if not csvs:
               raise SystemExit("No CSV files were generated in out/")
 
-          # Try to identify the key files across either naming convention.
           allocation_candidates = [
-              p for p in csvs
-              if p.endswith("_allocation_changes.csv")
+              p for p in csvs if p.endswith("_allocation_changes.csv")
           ]
           metrics_candidates = [
               p for p in csvs
@@ -86,32 +97,25 @@ jobs:
           allocation_file = allocation_candidates[-1] if allocation_candidates else None
           metrics_file = metrics_candidates[-1] if metrics_candidates else None
 
-          if allocation_file:
-              alloc = pd.read_csv(allocation_file)
-          else:
-              alloc = pd.DataFrame()
+          alloc = pd.read_csv(allocation_file) if allocation_file else pd.DataFrame()
 
-          # Normalize common column variants
           rename_map = {}
           for c in alloc.columns:
               cl = c.strip().lower()
-              if cl in ("current_alloc_%", "current_alloc_pct", "current_alloc_pct", "current allocation %"):
+              if cl in ("ticker",):
+                  rename_map[c] = "ticker"
+              elif cl in ("action",):
+                  rename_map[c] = "action"
+              elif cl in ("current_alloc_%", "current_alloc_pct", "current allocation %"):
                   rename_map[c] = "current_alloc"
-              elif cl in ("target_alloc_%", "target_alloc_pct", "model_target_alloc_pct", "target allocation %"):
+              elif cl in ("target_alloc_%", "target_alloc_pct", "target allocation %"):
                   rename_map[c] = "target_alloc"
               elif cl in ("change_%pts", "delta_pct_points", "change_pct_points"):
                   rename_map[c] = "delta_pts"
-              elif cl == "ticker":
-                  rename_map[c] = "ticker"
-              elif cl == "action":
-                  rename_map[c] = "action"
-              elif cl == "rationale":
-                  rename_map[c] = "rationale"
 
           if not alloc.empty:
               alloc = alloc.rename(columns=rename_map)
 
-          # Keep only rows that matter in the email
           if not alloc.empty and "delta_pts" in alloc.columns:
               alloc["delta_pts_abs"] = pd.to_numeric(alloc["delta_pts"], errors="coerce").abs()
               summary_df = alloc.sort_values("delta_pts_abs", ascending=False).head(10).copy()
@@ -128,37 +132,37 @@ jobs:
               except Exception:
                   return ""
 
-          if not summary_df.empty:
-              for c in ["current_alloc", "target_alloc", "delta_pts"]:
-                  if c in summary_df.columns:
-                      summary_df[c] = summary_df[c].map(fmt_percent)
+          for c in ["current_alloc", "target_alloc", "delta_pts"]:
+              if c in summary_df.columns:
+                  summary_df[c] = summary_df[c].map(fmt_percent)
 
-          run_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com") + "/" + \
-                    os.environ.get("GITHUB_REPOSITORY", "") + "/actions/runs/" + \
-                    os.environ.get("GITHUB_RUN_ID", "")
+          run_url = (
+              os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+              + "/"
+              + os.environ.get("GITHUB_REPOSITORY", "")
+              + "/actions/runs/"
+              + os.environ.get("GITHUB_RUN_ID", "")
+          )
 
           generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-
-          if summary_df.empty:
-              table_html = "<p>No allocation rows were found in the generated CSV output.</p>"
-          else:
-              table_html = summary_df.to_html(index=False, border=0, justify="left")
+          table_html = (
+              summary_df.to_html(index=False, border=0, justify="left")
+              if not summary_df.empty
+              else "<p>No allocation rows were found in the generated CSV output.</p>"
+          )
 
           metrics_note = f"<p><b>Metrics file:</b> {html.escape(os.path.basename(metrics_file))}</p>" if metrics_file else ""
 
           body = f"""
           <html>
             <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
-              <p>Wealthfront weekly allocation run completed.</p>
+              <p>Wealthfront allocation run completed.</p>
               <p><b>Generated at:</b> {generated_at}</p>
               <p><b>Repository:</b> {html.escape(os.environ.get("GITHUB_REPOSITORY", ""))}<br>
                  <b>Run:</b> <a href="{html.escape(run_url)}">{html.escape(run_url)}</a></p>
-
-              <h3 style="margin-bottom: 8px;">Top allocation changes</h3>
+              <h3>Top allocation changes</h3>
               {table_html}
-
               {metrics_note}
-
               <p>Attached: all generated CSV artifacts from this run.</p>
             </body>
           </html>
@@ -183,8 +187,6 @@ jobs:
           retention-days: 14
 
       - name: Send Gmail with inline summary + attachments
-        env:
-          EMAIL_SUBJECT: Wealthfront weekly allocation report
         run: |
           python - <<'PY'
           import os
@@ -195,7 +197,10 @@ jobs:
           sender = os.environ["GMAIL_USERNAME"]
           password = os.environ["GMAIL_APP_PASSWORD"]
           recipient = os.environ["EMAIL_TO"]
-          subject = os.environ["EMAIL_SUBJECT"]
+
+          subject = "Wealthfront weekly allocation report"
+          if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+              subject = "Wealthfront manual allocation test report"
 
           with open("email_body.html", "r", encoding="utf-8") as f:
               html_body = f.read()
