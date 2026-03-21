@@ -180,7 +180,24 @@ def build_snapshot_metrics(universe, ohlcv, asof, cash_ticker, momentum_lookback
             "sma50_gt_sma200": bool(float(sma50.iloc[-1]) > float(sma200.iloc[-1])),
             "cash_like": ticker == cash_ticker, "sleeve": classify_sleeve(ticker)
         })
-    if not rows: raise ValueError("No metrics available at snapshot date.")
+    if not rows:
+        available = len([t for t in universe if t in ohlcv])
+        needed = max(DEFAULT_SMA_LONG, breakout_days + 5, momentum_lookback_days + 5)
+        lengths = []
+        for t in universe:
+            if t in ohlcv:
+                try:
+                    lengths.append(len(ohlcv[t].loc[:asof]))
+                except Exception:
+                    pass
+        max_len = max(lengths) if lengths else 0
+        raise ValueError(
+            f"No metrics available at snapshot date {asof.date()}. "
+            f"Downloaded universe tickers available: {available}. "
+            f"Required history bars per ETF: >= {needed}. "
+            f"Maximum bars found among universe ETFs: {max_len}. "
+            f"Try passing --start with an earlier date."
+        )
     return pd.DataFrame(rows)
 
 def capped_normalize(weights: pd.Series, max_cap: float, uncapped_tickers: Optional[Set[str]] = None) -> pd.Series:
@@ -351,14 +368,21 @@ def allocation_mode(universe_path, holdings_path, cash_ticker, top_k, export_pre
     bad = sorted(set(holdings["ticker"]) - set(universe))
     if bad: raise ValueError(f"Holdings contain tickers not in Wealthfront universe: {bad}")
     if cash_ticker not in universe: raise ValueError(f"{cash_ticker} must exist in WealthfrontETFs.txt")
+
+    # Allocate mode needs enough buffered history for 200SMA, 6-month momentum,
+    # 89-day breakout, and 13-day exit logic.
+    effective_start = start if start else (datetime.today() - timedelta(days=400)).strftime("%Y-%m-%d")
+
     tickers = sorted(set(universe) | {"SPY","QQQ","DIA"})
     print_progress(f"Universe loaded: {len(universe)} ETFs")
-    ohlcv = download_ohlcv_history(tickers, start=start, end=end)
+    print_progress(f"Allocate mode download window: {effective_start} to {end or 'latest'}")
+    ohlcv = download_ohlcv_history(tickers, start=effective_start, end=end)
     print_progress("Building close-price matrix")
     close_px = get_close_series(ohlcv)
     asof = close_px.dropna(how="all").index[-1]
     print_progress(f"Computing strategy snapshot as of {asof.date()}")
     metrics = build_snapshot_metrics(universe, ohlcv, asof, cash_ticker, DEFAULT_MOMENTUM_LOOKBACK_DAYS, DEFAULT_BREAKOUT_DAYS, DEFAULT_EXIT_DAYS, DEFAULT_ATR_DAYS)
+    print_progress(f"Usable ETFs with sufficient history and indicators: {len(metrics)}")
     current = derive_current_weights(holdings, close_px)
     prev_holdings = set(current.loc[current["current_weight"] > 0, "ticker"].tolist())
     print_progress("Scoring ETFs and generating target allocation")
@@ -405,7 +429,8 @@ def run_schedule_backtest(universe, ohlcv, close_px, schedule_code, cash_ticker,
     px = close_px.loc[start:end, universe].dropna(how="all")
     if px.empty: raise ValueError(f"No price data available in range {start} to {end}")
     rebalance_dates = [d for d in px.resample(REBALANCE_MAP[schedule_code]).last().index if d in px.index]
-    if len(rebalance_dates) < 2: raise ValueError(f"Not enough rebalance points for schedule {schedule_code}")
+    if len(rebalance_dates) == 0:
+        return None, None, None, None
     entry_check_dates = [d for d in px.resample(REBALANCE_MAP["W"]).last().index if d in px.index]
     schedule_name = {"W":"Weekly","M":"Monthly","Q":"Quarterly"}.get(schedule_code, schedule_code)
     print_progress(f"Starting {schedule_name} backtest with {len(rebalance_dates)} portfolio rebalances and {len(entry_check_dates)} weekly entry checks")
@@ -458,7 +483,11 @@ def backtest_mode(universe_path, cash_ticker, top_k, export_prefix, start, end, 
     equity_curves, turnover_tables, weight_tables, entry_label_tables, summary_rows = {}, {}, {}, {}, []
     for label, code in schedules.items():
         print_progress(f"Running {label.lower()} rebalance comparison")
-        eq, to_df, w_df, e_df = run_schedule_backtest(universe, ohlcv, close_px, code, cash_ticker, top_k, start, end, hurdle_mode)
+        result = run_schedule_backtest(universe, ohlcv, close_px, code, cash_ticker, top_k, start, end, hurdle_mode)
+        if result[0] is None:
+            print_progress(f"Skipping {label.lower()} comparison: not enough rebalance points in requested date range")
+            continue
+        eq, to_df, w_df, e_df = result
         equity_curves[label], turnover_tables[label], weight_tables[label], entry_label_tables[label] = eq, to_df, w_df, e_df
         stats = metrics_from_equity_curve(eq, to_df["turnover"] if not to_df.empty else pd.Series(dtype=float))
         stats["Avg BUY NOW Count"] = float(e_df["buy_now_count"].mean()) if not e_df.empty else 0.0
