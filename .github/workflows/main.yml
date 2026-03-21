@@ -190,7 +190,7 @@ jobs:
           from email.message import EmailMessage
           from mimetypes import guess_type
 
-          sender = ${{ secrets.PERSONAL_EMAIL }}
+          sender = ${{ secrets.GMAIL_USERNAME }}
           password = ${{ secrets.GMAIL_APP_PASSWORD }}
           recipient = ${{ secrets.PERSONAL_EMAIL }}
 
