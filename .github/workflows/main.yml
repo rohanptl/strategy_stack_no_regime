@@ -28,9 +28,9 @@ jobs:
       HOLDINGS_FILE: holdings.csv
       DEFAULT_TOP_K: 5
       DEFAULT_EXPORT_PREFIX: wealthfront_alloc
-      EMAIL_TO: "prtech9524@gmail.com"
-      GMAIL_USERNAME: "prtech9524@gmail.com"
+      GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      PERSONAL_EMAIL: ${{ secrets.PERSONAL_EMAIL }}
 
     steps:
       - name: Check out repo
@@ -44,18 +44,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy yfinance openpyxl
+          pip install pandas numpy yfinance openpyxl tabulate
 
       - name: Resolve runtime parameters
         id: params
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "top_k=${{ inputs.top_k }}" >> $GITHUB_OUTPUT
-            echo "export_prefix=${{ inputs.export_prefix }}" >> $GITHUB_OUTPUT
+            echo "top_k=${{ inputs.top_k }}" >> "$GITHUB_OUTPUT"
+            echo "export_prefix=${{ inputs.export_prefix }}" >> "$GITHUB_OUTPUT"
           else
-            echo "top_k=${DEFAULT_TOP_K}" >> $GITHUB_OUTPUT
-            echo "export_prefix=${DEFAULT_EXPORT_PREFIX}" >> $GITHUB_OUTPUT
+            echo "top_k=${DEFAULT_TOP_K}" >> "$GITHUB_OUTPUT"
+            echo "export_prefix=${DEFAULT_EXPORT_PREFIX}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create output folder
@@ -183,6 +183,10 @@ jobs:
           retention-days: 14
 
       - name: Send Gmail with inline summary + attachments
+        env:
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PERSONAL_EMAIL: ${{ secrets.PERSONAL_EMAIL }}
         run: |
           python - <<'PY'
           import os
@@ -190,9 +194,9 @@ jobs:
           from email.message import EmailMessage
           from mimetypes import guess_type
 
-          sender = "prtech9524@gmail.com"
-          password = ${{ secrets.GMAIL_APP_PASSWORD }}
-          recipient = "prtech9524@gmail.com"
+          sender = os.environ["GMAIL_USERNAME"]
+          password = os.environ["GMAIL_APP_PASSWORD"]
+          recipient = os.environ["PERSONAL_EMAIL"]
 
           subject = "Wealthfront weekly allocation report"
           if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
@@ -217,6 +221,7 @@ jobs:
                   maintype, subtype = "application", "octet-stream"
               else:
                   maintype, subtype = ctype.split("/", 1)
+
               with open(path, "rb") as af:
                   msg.add_attachment(
                       af.read(),
@@ -228,4 +233,6 @@ jobs:
           with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
               smtp.login(sender, password)
               smtp.send_message(msg)
+
+          print("Email sent successfully.")
           PY
