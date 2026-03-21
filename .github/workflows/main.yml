@@ -28,8 +28,8 @@ jobs:
       HOLDINGS_FILE: holdings.csv
       DEFAULT_TOP_K: 5
       DEFAULT_EXPORT_PREFIX: wealthfront_alloc
-      EMAIL_TO: prtech9524@gmail.com
-      GMAIL_USERNAME: prtech9524@gmail.com
+      EMAIL_TO: "prtech9524@gmail.com"
+      GMAIL_USERNAME: "prtech9524@gmail.com"
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
 
     steps:
