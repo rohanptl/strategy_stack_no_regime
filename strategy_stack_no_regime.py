@@ -27,7 +27,7 @@ DEFAULT_VOL_DAYS = 20
 DEFAULT_MOMENTUM_LOOKBACK_DAYS = 126
 DEFAULT_PULLBACK_EMA_BUFFER = 0.02
 DEFAULT_EXTENDED_FROM_EMA = 0.05
-DEFAULT_HOLD_BUFFER_MULTIPLIER = 2
+DEFAULT_HOLD_BAND_OFFSET = 2
 DEFAULT_OFFENSIVE_TARGET = 0.80
 DEFAULT_BENCHMARK_HURDLE = "spy"
 REBALANCE_MAP = {"W": "W-FRI", "M": "ME", "Q": "QE"}
@@ -260,7 +260,7 @@ def apply_entry_labels_and_allocate(df: pd.DataFrame, cash_ticker: str, max_allo
     if total > 0: df["target_weight"] = df["target_weight"] / total
     return df
 
-def select_candidates(metrics: pd.DataFrame, cash_ticker: str, top_k: int, max_alloc: float, hurdle_mode: str, prev_holdings: Optional[Set[str]] = None, hold_buffer_multiplier: int = DEFAULT_HOLD_BUFFER_MULTIPLIER) -> pd.DataFrame:
+def select_candidates(metrics: pd.DataFrame, cash_ticker: str, top_k: int, max_alloc: float, hurdle_mode: str, prev_holdings: Optional[Set[str]] = None, hold_band: Optional[int] = None) -> pd.DataFrame:
     df = metrics.copy()
     hurdle = benchmark_hurdle_return(df, hurdle_mode)
     df["benchmark_hurdle"] = hurdle
@@ -297,12 +297,13 @@ def select_candidates(metrics: pd.DataFrame, cash_ticker: str, top_k: int, max_a
     if prev_holdings:
         all_ranked = df[(~df["cash_like"])].sort_values("raw_score", ascending=False).copy()
         all_ranked["rank"] = np.arange(1, len(all_ranked) + 1)
-        keep_threshold = top_k * hold_buffer_multiplier
+        keep_threshold = max(top_k, int(hold_band) if hold_band is not None else top_k + DEFAULT_HOLD_BAND_OFFSET)
         for t in prev_holdings:
             if t in all_ranked["ticker"].values:
                 rank = int(all_ranked.loc[all_ranked["ticker"] == t, "rank"].iloc[0])
                 score_t = float(all_ranked.loc[all_ranked["ticker"] == t, "raw_score"].iloc[0])
-                if rank <= keep_threshold and score_t > 0: selected.add(t)
+                if rank <= keep_threshold and score_t > 0:
+                    selected.add(t)
     ranked_selected = df[(~df["cash_like"]) & (df["ticker"].isin(selected))].sort_values("raw_score", ascending=False)
     selected = set(ranked_selected.head(top_k)["ticker"].tolist())
     df["selected"] = df["ticker"].isin(selected) | df["cash_like"]
@@ -361,7 +362,7 @@ def derive_current_weights(holdings: pd.DataFrame, close_px: pd.DataFrame) -> pd
     h["current_weight"] = 0.0
     return h[["ticker", "current_weight"]]
 
-def allocation_mode(universe_path, holdings_path, cash_ticker, top_k, export_prefix, start, end, hurdle_mode):
+def allocation_mode(universe_path, holdings_path, cash_ticker, top_k, export_prefix, start, end, hurdle_mode, hold_band):
     print_progress("Loading universe and holdings")
     universe = parse_universe_file(universe_path)
     holdings = read_holdings(holdings_path)
@@ -386,7 +387,7 @@ def allocation_mode(universe_path, holdings_path, cash_ticker, top_k, export_pre
     current = derive_current_weights(holdings, close_px)
     prev_holdings = set(current.loc[current["current_weight"] > 0, "ticker"].tolist())
     print_progress("Scoring ETFs and generating target allocation")
-    alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=prev_holdings)
+    alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=prev_holdings, hold_band=hold_band)
     print_progress("Reconciling current holdings against target weights")
     out = alloc.merge(current, on="ticker", how="left")
     out["current_weight"] = out["current_weight"].fillna(0.0)
@@ -425,7 +426,7 @@ def metrics_from_equity_curve(equity: pd.Series, turnover: pd.Series) -> Dict[st
 def benchmark_series(close_px: pd.DataFrame, start: str, end: str, ticker: str) -> pd.Series:
     s = close_px.loc[start:end, ticker].dropna(); eq = s / s.iloc[0]; eq.name = ticker; return eq
 
-def run_schedule_backtest(universe, ohlcv, close_px, schedule_code, cash_ticker, top_k, start, end, hurdle_mode):
+def run_schedule_backtest(universe, ohlcv, close_px, schedule_code, cash_ticker, top_k, start, end, hurdle_mode, hold_band):
     px = close_px.loc[start:end, universe].dropna(how="all")
     if px.empty: raise ValueError(f"No price data available in range {start} to {end}")
     rebalance_dates = [d for d in px.resample(REBALANCE_MAP[schedule_code]).last().index if d in px.index]
@@ -450,10 +451,10 @@ def run_schedule_backtest(universe, ohlcv, close_px, schedule_code, cash_ticker,
         if need_full_rebalance or need_entry_check:
             metrics = build_snapshot_metrics(universe, ohlcv, dt, cash_ticker, DEFAULT_MOMENTUM_LOOKBACK_DAYS, DEFAULT_BREAKOUT_DAYS, DEFAULT_EXIT_DAYS, DEFAULT_ATR_DAYS)
             if need_full_rebalance:
-                alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=current_selected)
+                alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=current_selected, hold_band=hold_band)
                 current_selected = set(alloc.loc[(alloc["selected"]) & (~alloc["cash_like"]), "ticker"].tolist())
             else:
-                alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=current_selected)
+                alloc = select_candidates(metrics, cash_ticker, top_k, DEFAULT_MAX_ALLOC, hurdle_mode, prev_holdings=current_selected, hold_band=hold_band)
                 alloc["selected"] = alloc["ticker"].isin(current_selected) | alloc["cash_like"]
                 alloc = apply_entry_labels_and_allocate(alloc, cash_ticker=cash_ticker, max_alloc=DEFAULT_MAX_ALLOC)
             new_weights = alloc.set_index("ticker")["target_weight"].reindex(universe).fillna(0.0)
@@ -468,7 +469,7 @@ def run_schedule_backtest(universe, ohlcv, close_px, schedule_code, cash_ticker,
     equity = equity.ffill()
     return equity, pd.DataFrame(turnovers), pd.DataFrame(weights_history), pd.DataFrame(entry_label_history)
 
-def backtest_mode(universe_path, cash_ticker, top_k, export_prefix, start, end, hurdle_mode):
+def backtest_mode(universe_path, cash_ticker, top_k, export_prefix, start, end, hurdle_mode, hold_band):
     print_progress("Loading ETF universe for backtest")
     universe = parse_universe_file(universe_path)
     if cash_ticker not in universe: raise ValueError(f"{cash_ticker} must exist in WealthfrontETFs.txt")
@@ -483,7 +484,7 @@ def backtest_mode(universe_path, cash_ticker, top_k, export_prefix, start, end, 
     equity_curves, turnover_tables, weight_tables, entry_label_tables, summary_rows = {}, {}, {}, {}, []
     for label, code in schedules.items():
         print_progress(f"Running {label.lower()} rebalance comparison")
-        result = run_schedule_backtest(universe, ohlcv, close_px, code, cash_ticker, top_k, start, end, hurdle_mode)
+        result = run_schedule_backtest(universe, ohlcv, close_px, code, cash_ticker, top_k, start, end, hurdle_mode, hold_band)
         if result[0] is None:
             print_progress(f"Skipping {label.lower()} comparison: not enough rebalance points in requested date range")
             continue
@@ -532,16 +533,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--end")
     p.add_argument("--export-prefix", default="wealthfront_v2")
     p.add_argument("--benchmark-hurdle", default=DEFAULT_BENCHMARK_HURDLE, choices=["none","spy","qqq","dia","best_of_3"])
+    p.add_argument("--hold-band", type=int, help="Optional absolute hold rank threshold. Buy still requires rank <= top-k; existing holdings are only sold when rank falls below this wider band. Default: top-k + 2.")
     return p
 
 def main():
     args = build_parser().parse_args()
     if args.mode == "allocate":
         if not args.holdings: raise SystemExit("--holdings is required for --mode allocate")
-        allocation_mode(args.universe, args.holdings, args.cash_ticker.upper(), args.top_k, args.export_prefix, args.start, args.end, args.benchmark_hurdle)
+        allocation_mode(args.universe, args.holdings, args.cash_ticker.upper(), args.top_k, args.export_prefix, args.start, args.end, args.benchmark_hurdle, args.hold_band)
     else:
         if not args.start or not args.end: raise SystemExit("--start and --end are required for --mode backtest")
-        backtest_mode(args.universe, args.cash_ticker.upper(), args.top_k, args.export_prefix, args.start, args.end, args.benchmark_hurdle)
+        backtest_mode(args.universe, args.cash_ticker.upper(), args.top_k, args.export_prefix, args.start, args.end, args.benchmark_hurdle, args.hold_band)
 
 if __name__ == "__main__":
     main()
