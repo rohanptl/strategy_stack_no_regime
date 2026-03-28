@@ -417,3 +417,6 @@ SPY
 
 iShares Russell 2000 ETF (IWM)
 IWM
+
+Invesco S&P 500 Equal Weight ETF
+RSP

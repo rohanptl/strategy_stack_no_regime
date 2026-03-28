@@ -1,0 +1,62 @@
+Apple Inc.
+AAPL
+
+Advanced Micro Devices Inc.
+AMD
+
+Amazon.com Inc.
+AMZN
+
+Arm Holdings plc
+ARM
+
+Broadcom Inc.
+AVGO
+
+Alibaba Group Holding Ltd.
+BABA
+
+Berkshire Hathaway Inc. 
+BRK-B
+
+Coinbase Global Inc.
+COIN
+
+Costco Wholesale Corporation
+COST
+
+Alphabet Inc.
+GOOGL
+
+Robinhood Markets Inc.
+HOOD
+
+Meta Platforms Inc.
+META
+
+Microsoft
+MSFT
+
+MicroStrategy Incorporated
+MSTR
+
+Netflix, Inc.
+NFLX
+
+NVIDIA Corporation
+NVDA
+
+Palantir
+PLTR
+
+Tesla Inc.
+TSLA
+
+Uber Technologies Inc.
+UBER
+
+UnitedHealth Group Incorporated
+UNH
+
+iShares 0-3 Month Treasury Bond ETF
+sgov

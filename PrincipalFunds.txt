@@ -1,0 +1,47 @@
+Victory Trivalent International Sm-Cp R6
+MSSIX
+
+Vanguard International Growth Adm
+VWILX
+
+Vanguard International Value Fund Investor Shares
+VTRIX
+
+JPMorgan Emerging Markets Equity Fund
+JEMWX
+
+iShares MSCI EAFE international index k fund
+BTMKX
+
+Vanguard Small Cap Index Fund Admiral Shares
+VSMAX
+
+Vanguard Mid-Cap Value Index Fund Admiral Shares
+VMVAX
+
+Principal Real Estate Securities sep Acct
+PRRAX
+
+JPMorgan Small Cap Growth Fund Class R6
+JGSMX
+
+Fidelity Extended Market Index Fund
+FSMAX
+
+BlackRock Mid-Cap Growth Equity Portfolio Class K
+BMGKX
+
+PGIM Jennison Growth R6
+PJFQX
+
+Columbia Dividend Income Fund Institutional 3 Class
+CDDYX
+
+iShares S&P 500 Index Fund Class K
+WFSPX
+
+Janus Henderson Balanced N
+JABNX
+
+iShares 0-3 Month Treasury Bond ETF
+sgov
