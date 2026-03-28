@@ -6,11 +6,11 @@ on:
       top_k:
         description: "Number of ETFs to target"
         required: false
-        default: "5"
+        default: "3"
       export_prefix:
         description: "Output file prefix"
         required: false
-        default: "wealthfront_alloc"
+        default: "US_alloc"
 
   schedule:
     - cron: "30 10 * * 6"
@@ -26,8 +26,8 @@ jobs:
       SCRIPT_PATH: strategy_stack_no_regime.py
       UNIVERSE_FILE: USStocks.txt
       HOLDINGS_FILE: USHoldings.csv
-      DEFAULT_TOP_K: 5
-      DEFAULT_EXPORT_PREFIX: wealthfront_alloc
+      DEFAULT_TOP_K: 3
+      DEFAULT_EXPORT_PREFIX: US_alloc
       GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
       PERSONAL_EMAIL: ${{ secrets.PERSONAL_EMAIL }}
@@ -250,7 +250,7 @@ jobs:
           body = f"""
           <html>
             <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
-              <p><b>Wealthfront allocation run completed.</b></p>
+              <p><b>US allocation run completed.</b></p>
 
               <p>
                 <b>Generated at:</b> {generated_at}<br>
@@ -289,7 +289,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wealthfront-allocate-artifacts
+          name: US-allocate-artifacts
           path: |
             out/*.csv
             email_body.html
@@ -312,9 +312,9 @@ jobs:
           password = os.environ["GMAIL_APP_PASSWORD"]
           recipient = os.environ["PERSONAL_EMAIL"]
 
-          subject = "Wealthfront rebalance actions"
+          subject = "US rebalance actions"
           if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-              subject = "Wealthfront manual rebalance action report"
+              subject = "US manual rebalance action report"
 
           with open("email_body.html", "r", encoding="utf-8") as f:
               html_body = f.read()
@@ -324,7 +324,7 @@ jobs:
           msg["From"] = sender
           msg["To"] = recipient
           msg.set_content(
-              "Wealthfront rebalance report attached. See HTML body for buy/increase, sell/decrease, and wait-for-pullback actions."
+              "US rebalance report attached. See HTML body for buy/increase, sell/decrease, and wait-for-pullback actions."
           )
           msg.add_alternative(html_body, subtype="html")
 
