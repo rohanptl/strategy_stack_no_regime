@@ -6,7 +6,11 @@ on:
       top_k:
         description: "Number of ETFs to target"
         required: false
-        default: "5"
+        default: "4"
+      hold_band:
+        description: "Hold band"
+        required: false
+        default: "7"
       export_prefix:
         description: "Output file prefix"
         required: false
@@ -26,7 +30,8 @@ jobs:
       SCRIPT_PATH: strategy_stack_no_regime.py
       UNIVERSE_FILE: IndianETF.txt
       HOLDINGS_FILE: IndianHolding.csv
-      DEFAULT_TOP_K: 5
+      DEFAULT_TOP_K: 4
+      DEFAULT_HOLD_BAND: 7
       DEFAULT_EXPORT_PREFIX: wealthfront_alloc
       GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -52,9 +57,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "top_k=${{ inputs.top_k }}" >> "$GITHUB_OUTPUT"
+            echo "hold_band=${{ inputs.hold_band }}" >> "$GITHUB_OUTPUT"
             echo "export_prefix=${{ inputs.export_prefix }}" >> "$GITHUB_OUTPUT"
           else
             echo "top_k=${DEFAULT_TOP_K}" >> "$GITHUB_OUTPUT"
+            echo "hold_band=${DEFAULT_HOLD_BAND}" >> "$GITHUB_OUTPUT"
             echo "export_prefix=${DEFAULT_EXPORT_PREFIX}" >> "$GITHUB_OUTPUT"
           fi
 
@@ -68,6 +75,7 @@ jobs:
             --universe "$UNIVERSE_FILE" \
             --holdings "$HOLDINGS_FILE" \
             --top-k "${{ steps.params.outputs.top_k }}" \
+            --hold-band "${{ steps.params.outputs.hold_band }}" \
             --export-prefix "out/${{ steps.params.outputs.export_prefix }}"
 
       - name: Build email body and collect attachments
