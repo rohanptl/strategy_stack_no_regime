@@ -1,4 +1,4 @@
-name: Wealthfront Allocate + Email
+name: Principal Allocate + Email
 
 on:
   workflow_dispatch:
