@@ -14,7 +14,7 @@ on:
       export_prefix:
         description: "Output file prefix"
         required: false
-        default: "wealthfront_alloc"
+        default: "Principal_alloc"
 
   schedule:
     - cron: "15 10 * * 6"
@@ -32,7 +32,7 @@ jobs:
       HOLDINGS_FILE: PrincipalHolding.csv
       DEFAULT_TOP_K: 5
       DEFAULT_HOLD_BAND: 7
-      DEFAULT_EXPORT_PREFIX: wealthfront_alloc
+      DEFAULT_EXPORT_PREFIX: Principal_alloc
       GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
       PERSONAL_EMAIL: ${{ secrets.PERSONAL_EMAIL }}
@@ -258,7 +258,7 @@ jobs:
           body = f"""
           <html>
             <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
-              <p><b>Wealthfront allocation run completed.</b></p>
+              <p><b>Principal allocation run completed.</b></p>
 
               <p>
                 <b>Generated at:</b> {generated_at}<br>
@@ -297,7 +297,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wealthfront-allocate-artifacts
+          name: Principal-allocate-artifacts
           path: |
             out/*.csv
             email_body.html
@@ -320,9 +320,9 @@ jobs:
           password = os.environ["GMAIL_APP_PASSWORD"]
           recipient = os.environ["PERSONAL_EMAIL"]
 
-          subject = "Wealthfront rebalance actions"
+          subject = "Principal rebalance actions"
           if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-              subject = "Wealthfront manual rebalance action report"
+              subject = "Principal manual rebalance action report"
 
           with open("email_body.html", "r", encoding="utf-8") as f:
               html_body = f.read()
@@ -332,7 +332,7 @@ jobs:
           msg["From"] = sender
           msg["To"] = recipient
           msg.set_content(
-              "Wealthfront rebalance report attached. See HTML body for buy/increase, sell/decrease, and wait-for-pullback actions."
+              "Principal rebalance report attached. See HTML body for buy/increase, sell/decrease, and wait-for-pullback actions."
           )
           msg.add_alternative(html_body, subtype="html")
 
