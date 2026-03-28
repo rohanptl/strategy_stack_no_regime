@@ -1,4 +1,4 @@
-name: Wealthfront Allocate + Email
+name: Indian ETFs Allocate + Email
 
 on:
   workflow_dispatch:
