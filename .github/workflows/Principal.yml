@@ -17,7 +17,7 @@ on:
         default: "Principal_alloc"
 
   schedule:
-    - cron: "15 10 * * 0"
+    - cron: "15 14 * * 0"
 
 jobs:
   allocate-and-email:
