@@ -17,7 +17,7 @@ on:
         default: "wealthfront_alloc"
 
   schedule:
-    - cron: "30 9 * * 0"
+    - cron: "30 13 * * 0"
 
 jobs:
   allocate-and-email:
