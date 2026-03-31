@@ -41,7 +41,7 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v4
         with:
-          ref: hols_band
+          ref: hold_band
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -95,7 +95,6 @@ jobs:
           if not csvs:
               raise SystemExit("No CSV files were generated in out/")
 
-          # Prefer rebalance/action output first, then legacy allocation output
           rebalance_candidates = [
               p for p in csvs
               if p.endswith("_rebalance_actions.csv") or p.endswith("_allocation_changes.csv")
@@ -141,7 +140,6 @@ jobs:
           actions = normalize_columns(actions)
           metrics = normalize_columns(metrics)
 
-          # Fallback: if action file is missing but metrics contains the necessary fields
           if actions.empty and not metrics.empty and {"ticker", "action"}.issubset(metrics.columns):
               actions = metrics.copy()
 
