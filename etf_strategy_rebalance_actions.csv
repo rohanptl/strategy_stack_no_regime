@@ -1,6 +1,4 @@
-ticker,entry_label,current_alloc_pct,model_target_alloc_pct,target_alloc_pct,delta_pct_points,action,rationale
-SGOV,DO NOT BUY,100.0,0.0,73.00397857824368,-26.99602142175632,DECREASE,SGOV holds residual cash while selected ETFs await valid entry signals.
-GNR,BUY NOW,0.0,11.951563514752145,11.951563514752145,11.951563514752145,INCREASE,Selected and executable now. Momentum/trend confirmed.
-XBI,WAIT FOR PULLBACK,0.0,10.498269612572606,5.249134806286303,5.249134806286303,INCREASE,Selected; waiting for pullback. Trend acceptable but entry extended or not fresh.
-EPOL,WAIT FOR PULLBACK,0.0,9.800663643883597,4.900331821941799,4.900331821941799,INCREASE,Selected; waiting for pullback. Trend acceptable but entry extended or not fresh.
-SMH,WAIT FOR PULLBACK,0.0,9.789982557552136,4.894991278776068,4.894991278776068,INCREASE,Selected; waiting for pullback. Trend acceptable but entry extended or not fresh.
+ticker,entry_label,current_alloc_pct,target_alloc_pct,delta_pct_points,action
+SGOV,DO NOT BUY,100.0,66.80100788719882,-33.19899211280117,DECREASE
+GNR,BUY NOW,0.0,23.06572463355863,23.06572463355863,INCREASE
+XBI,WAIT FOR PULLBACK,0.0,10.133267479242544,10.133267479242544,INCREASE

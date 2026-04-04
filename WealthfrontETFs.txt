@@ -420,3 +420,6 @@ IWM
 
 Invesco S&P 500 Equal Weight ETF
 RSP
+
+State Street SPDR Dow Jones Indust Avg ETF Trust
+DIA

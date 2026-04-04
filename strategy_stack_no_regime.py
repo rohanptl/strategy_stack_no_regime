@@ -10,7 +10,6 @@ from typing import Dict, List, Optional, Set
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import json
 
 try:
     import yfinance as yf
@@ -22,7 +21,7 @@ except Exception as e:
 
 DEFAULT_CASH_TICKER            = "SGOV"
 DEFAULT_TOP_K                  = 5
-DEFAULT_MAX_ALLOC              = 0.20
+DEFAULT_MAX_ALLOC              = 1.00
 DEFAULT_EMA_FAST               = 10
 DEFAULT_SMA_MID                = 50
 DEFAULT_SMA_LONG               = 200
@@ -38,17 +37,20 @@ DEFAULT_MOMENTUM_LOOKBACK_DAYS = 126
 DEFAULT_PULLBACK_EMA_BUFFER    = 0.02
 DEFAULT_EXTENDED_FROM_EMA      = 0.05
 DEFAULT_HOLD_BAND_OFFSET       = 2
-DEFAULT_BENCHMARK_HURDLE       = "spy"
 DEFAULT_TRANSACTION_COST_BPS   = 0
 
-BENCHMARK_TICKERS = {"SPY", "QQQ", "DIA"}
-REBALANCE_MAP     = {"W": "W-FRI", "M": "ME", "Q": "QE"}
+COMPARISON_BENCHMARK_TICKERS = {"SPY", "QQQ"}
+REBALANCE_MAP                = {"W": "W-FRI", "BW": "2W-FRI", "M": "ME", "Q": "QE"}
 
 
 # ── utilities ──────────────────────────────────────────────────────────────
 
 def print_progress(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def print_step(step_no: int, total_steps: int, message: str) -> None:
+    print_progress(f"Step {step_no}/{total_steps}: {message}")
 
 
 def parse_universe_file(path: str) -> List[str]:
@@ -339,39 +341,6 @@ def weekly_proxy_macd_hist(series: pd.Series) -> pd.Series:
 
 # ── benchmark hurdle ───────────────────────────────────────────────────────
 
-def compute_benchmark_hurdle(
-    ohlcv: Dict[str, pd.DataFrame],
-    asof: pd.Timestamp,
-    hurdle_mode: str,
-    momentum_lookback_days: int,
-) -> float:
-    if hurdle_mode == "none":
-        return -np.inf
-
-    hurdle_mode = hurdle_mode.lower()
-    returns: Dict[str, float] = {}
-
-    for b in BENCHMARK_TICKERS:
-        if b not in ohlcv:
-            continue
-        close = ohlcv[b]["Close"].loc[:asof].dropna()
-        if len(close) >= momentum_lookback_days + 1:
-            returns[b] = float(close.iloc[-1] / close.iloc[-(momentum_lookback_days + 1)] - 1.0)
-
-    if not returns:
-        return -np.inf
-    if hurdle_mode == "spy":
-        return returns.get("SPY", -np.inf)
-    if hurdle_mode == "qqq":
-        return returns.get("QQQ", -np.inf)
-    if hurdle_mode == "dia":
-        return returns.get("DIA", -np.inf)
-    if hurdle_mode == "best_of_3":
-        return max(returns.values())
-
-    raise ValueError(f"Unsupported benchmark hurdle mode: {hurdle_mode}")
-
-
 # ── precomputed feature store ──────────────────────────────────────────────
 
 def precompute_feature_store(
@@ -394,6 +363,7 @@ def precompute_feature_store(
             continue
 
         df = ohlcv[ticker].copy().sort_index()
+        df = df[~df.index.duplicated(keep='last')]
         if len(df) == 0 or "Close" not in df.columns or "High" not in df.columns or "Low" not in df.columns:
             continue
 
@@ -449,47 +419,47 @@ def build_snapshot_metrics(
     """
     Build a cross-sectional snapshot for `asof` by reading precomputed features.
     """
-    rows = []
+    frames = []
+    required = ["last_close", "sma200", "ret_6m"]
 
     for ticker in universe:
         feat = feature_store.get(ticker)
-        if feat is None or asof not in feat.index:
+        if feat is None:
             continue
-
-        row = feat.loc[asof]
-        if isinstance(row, pd.DataFrame):
-            row = row.iloc[-1]
-
-        required = ["last_close", "sma200", "ret_6m"]
-        if any(pd.isna(row.get(c, np.nan)) for c in required):
+        row = feat.reindex([asof])
+        if row.empty:
             continue
+        frames.append(row)
 
-        rows.append({
-            "ticker":           ticker,
-            "last_close":       float(row["last_close"]),
-            "sma50":            float(row["sma50"]) if pd.notna(row["sma50"]) else np.nan,
-            "sma200":           float(row["sma200"]) if pd.notna(row["sma200"]) else np.nan,
-            "ema10":            float(row["ema10"]) if pd.notna(row["ema10"]) else np.nan,
-            "macd":             float(row["macd"]) if pd.notna(row["macd"]) else np.nan,
-            "macd_signal":      float(row["macd_signal"]) if pd.notna(row["macd_signal"]) else np.nan,
-            "macd_hist":        float(row["macd_hist"]) if pd.notna(row["macd_hist"]) else np.nan,
-            "weekly_macd_hist": float(row["weekly_macd_hist"]) if pd.notna(row["weekly_macd_hist"]) else np.nan,
-            "atr15":            float(row["atr15"]) if pd.notna(row["atr15"]) else np.nan,
-            "realized_vol20":   float(row["realized_vol20"]) if pd.notna(row["realized_vol20"]) else np.nan,
-            "ret_6m":           float(row["ret_6m"]) if pd.notna(row["ret_6m"]) else np.nan,
-            "breakout_89d":     bool(row["breakout_89d"]) if pd.notna(row["breakout_89d"]) else False,
-            "breakout_recent":  bool(row["breakout_recent"]) if pd.notna(row["breakout_recent"]) else False,
-            "exit_13d":         bool(row["exit_13d"]) if pd.notna(row["exit_13d"]) else False,
-            "above_ema10":      bool(row["above_ema10"]) if pd.notna(row["above_ema10"]) else False,
-            "above_sma200":     bool(row["above_sma200"]) if pd.notna(row["above_sma200"]) else False,
-            "sma50_gt_sma200":  bool(row["sma50_gt_sma200"]) if pd.notna(row["sma50_gt_sma200"]) else False,
-            "cash_like":        bool(row["cash_like"]),
-        })
-
-    if not rows:
+    if not frames:
         raise ValueError(f"No metrics at {asof.date()} from precomputed feature store.")
 
-    return pd.DataFrame(rows)
+    out = pd.concat(frames, axis=0)
+    out = out.dropna(subset=required).copy()
+    if out.empty:
+        raise ValueError(f"No metrics at {asof.date()} from precomputed feature store.")
+
+    bool_cols = [
+        "breakout_89d", "breakout_recent", "exit_13d",
+        "above_ema10", "above_sma200", "sma50_gt_sma200", "cash_like",
+    ]
+    for col in bool_cols:
+        out[col] = out[col].fillna(False).astype(bool)
+
+    numeric_cols = [
+        "last_close", "sma50", "sma200", "ema10", "macd", "macd_signal",
+        "macd_hist", "weekly_macd_hist", "atr15", "realized_vol20", "ret_6m",
+    ]
+    for col in numeric_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    cols = [
+        "ticker", "last_close", "sma50", "sma200", "ema10", "macd",
+        "macd_signal", "macd_hist", "weekly_macd_hist", "atr15",
+        "realized_vol20", "ret_6m", "breakout_89d", "breakout_recent",
+        "exit_13d", "above_ema10", "above_sma200", "sma50_gt_sma200", "cash_like",
+    ]
+    return out[cols].reset_index(drop=True)
 
 
 # ── scoring & weight normalisation ─────────────────────────────────────────
@@ -535,17 +505,14 @@ def capped_normalize(
     return w
 
 
-def _add_eligibility(df: pd.DataFrame, hurdle: float) -> pd.DataFrame:
+def _add_eligibility(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    non_cash     = ~df["cash_like"]
-    above_hurdle = df["ret_6m"].fillna(-np.inf) > hurdle
+    non_cash = ~df["cash_like"]
 
     df["eligible"] = df["cash_like"] | (
         non_cash
         & df["above_sma200"].astype(bool)
-        & above_hurdle
     )
-    df["benchmark_hurdle"] = hurdle
     return df
 
 
@@ -723,7 +690,40 @@ def apply_entry_labels_and_allocate(
 
     sel_nc = df["selected"] & ~df["cash_like"]
     if sel_nc.any():
-        df.loc[sel_nc, "entry_label"] = df.loc[sel_nc].apply(classify_entry_signal, axis=1)
+        selected = df.loc[sel_nc].copy()
+
+        strong_trend = selected["above_sma200"].astype(bool) & selected["sma50_gt_sma200"].astype(bool)
+        pos_mom = (selected["macd_hist"] > 0) & (selected["weekly_macd_hist"] > 0)
+        valid_ema = selected["ema10"].notna() & (selected["ema10"] > 0)
+        dist = pd.Series(np.inf, index=selected.index, dtype=float)
+        dist.loc[valid_ema] = selected.loc[valid_ema, "last_close"] / selected.loc[valid_ema, "ema10"] - 1.0
+
+        labels = pd.Series("DO NOT BUY", index=selected.index, dtype=object)
+        invalid = ~selected["above_sma200"].astype(bool) | selected["exit_13d"].astype(bool)
+
+        breakout_buy = (
+            ~invalid
+            & valid_ema
+            & strong_trend
+            & pos_mom
+            & selected["breakout_89d"].astype(bool)
+            & selected["breakout_recent"].astype(bool)
+            & (dist <= DEFAULT_EXTENDED_FROM_EMA)
+        )
+        labels.loc[breakout_buy] = "BUY NOW"
+
+        pullback_buy = (
+            ~invalid
+            & valid_ema
+            & strong_trend
+            & pos_mom
+            & selected["above_ema10"].astype(bool)
+            & (dist <= DEFAULT_PULLBACK_EMA_BUFFER)
+        )
+        labels.loc[pullback_buy] = "BUY NOW"
+
+        labels.loc[~invalid & strong_trend & (labels != "BUY NOW")] = "WAIT FOR PULLBACK"
+        df.loc[selected.index, "entry_label"] = labels
 
     if execution_mode == "pure_topk":
         df["target_weight"] = df["model_target_weight"]
@@ -784,40 +784,83 @@ def apply_entry_labels_and_allocate(
 
 
 def rationale_for_row(row: pd.Series, cash_ticker: str) -> str:
+    def yes_no(flag: object) -> str:
+        return "yes" if bool(flag) else "no"
+
+    def pct(value: object) -> str:
+        try:
+            return f"{float(value) * 100:.1f}%"
+        except (TypeError, ValueError):
+            return "n/a"
+
+    trend_ok = bool(row.get("above_sma200")) and bool(row.get("sma50_gt_sma200"))
+    momentum_ok = float(row.get("macd_hist", 0.0)) > 0 and float(row.get("weekly_macd_hist", 0.0)) > 0
+    breakout_ok = bool(row.get("breakout_89d")) and bool(row.get("breakout_recent"))
+    above_ema10 = bool(row.get("above_ema10"))
+    exit_flag = bool(row.get("exit_13d"))
+
     if row["ticker"] == cash_ticker:
         return (
-            f"{cash_ticker} holds residual cash while selected ETFs await valid entry signals."
+            f"{cash_ticker} absorbs residual cash; final target {pct(row.get('target_weight', 0.0))} "
+            f"because selected ETFs are only partially deployable today."
             if row.get("target_weight", 0) > 0
-            else f"{cash_ticker} available as cash sleeve but not currently needed."
+            else f"{cash_ticker} is the cash sleeve but no residual allocation is needed today."
         )
     if row.get("selected") and row.get("entry_label") == "BUY NOW":
-        return "Selected and executable now. Momentum/trend confirmed."
+        return (
+            f"Selected and executable now: trend={yes_no(trend_ok)}, momentum={yes_no(momentum_ok)}, "
+            f"breakout_fresh={yes_no(breakout_ok)}, above_ema10={yes_no(above_ema10)}."
+        )
     if row.get("selected") and row.get("entry_label") == "WAIT FOR PULLBACK":
-        return "Selected; waiting for pullback. Trend acceptable but entry extended or not fresh."
+        return (
+            f"Selected but partial-only entry: trend={yes_no(trend_ok)}, momentum={yes_no(momentum_ok)}, "
+            f"breakout_fresh={yes_no(breakout_ok)}, above_ema10={yes_no(above_ema10)}. "
+            f"Model target {pct(row.get('model_target_weight', 0.0))}, deployed target {pct(row.get('target_weight', 0.0))}."
+        )
     if row.get("selected") and row.get("entry_label") == "DO NOT BUY":
-        return "Selected on ranking but current entry signal is weak or invalid."
-    return "Not selected or failed hurdle/filter rules."
+        reasons = []
+        if exit_flag:
+            reasons.append("exit_13d triggered")
+        if not bool(row.get("above_sma200")):
+            reasons.append("below SMA200")
+        if not bool(row.get("sma50_gt_sma200")):
+            reasons.append("SMA50 <= SMA200")
+        if float(row.get("macd_hist", 0.0)) <= 0:
+            reasons.append("daily MACD histogram <= 0")
+        if float(row.get("weekly_macd_hist", 0.0)) <= 0:
+            reasons.append("weekly MACD histogram <= 0")
+        if not above_ema10:
+            reasons.append("below EMA10")
+        detail = ", ".join(reasons) if reasons else "entry conditions not met"
+        return f"Selected on ranking, but not executable today: {detail}."
+
+    reasons = []
+    if not bool(row.get("above_sma200")):
+        reasons.append("below SMA200")
+    if not bool(row.get("sma50_gt_sma200")):
+        reasons.append("SMA50 <= SMA200")
+    if float(row.get("raw_score", 0.0)) <= 0:
+        reasons.append("raw score <= 0")
+    if exit_flag:
+        reasons.append("exit_13d triggered")
+    detail = ", ".join(reasons) if reasons else "outranked by stronger candidates"
+    return f"Not selected: {detail}."
 
 
 # ── candidate selection ────────────────────────────────────────────────────
 
 def select_candidates(
     metrics: pd.DataFrame,
-    ohlcv: Dict[str, pd.DataFrame],
-    asof: pd.Timestamp,
     cash_ticker: str,
     top_k: int,
     max_alloc: float,
-    hurdle_mode: str,
-    momentum_lookback_days: int,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
     prev_holdings: Optional[Set[str]] = None,
     hold_band: Optional[int] = None,
 ) -> pd.DataFrame:
-    hurdle = compute_benchmark_hurdle(ohlcv, asof, hurdle_mode, momentum_lookback_days)
-    df     = _add_eligibility(metrics.copy(), hurdle)
+    df     = _add_eligibility(metrics.copy())
     df     = _add_scores(df)
 
     ranked = (
@@ -831,12 +874,14 @@ def select_candidates(
 
     if prev_holdings:
         keep_threshold = max(top_k, hold_band if hold_band is not None else top_k + DEFAULT_HOLD_BAND_OFFSET)
+        ranked_lookup = ranked.set_index("ticker")[["rank", "raw_score"]]
         for t in prev_holdings:
-            row = ranked[ranked["ticker"] == t]
-            if not row.empty and int(row.iloc[0]["rank"]) <= keep_threshold and float(row.iloc[0]["raw_score"]) > 0:
-                selected.add(t)
-        if len(selected) > top_k:
-            selected = set(ranked[ranked["ticker"].isin(selected)].head(top_k)["ticker"].tolist())
+            if t in ranked_lookup.index:
+                row = ranked_lookup.loc[t]
+                if int(row["rank"]) <= keep_threshold and float(row["raw_score"]) > 0:
+                    selected.add(t)
+        # Hysteresis: existing holdings can remain until they fall below keep_threshold.
+        # New entrants still only come from the current top_k.
 
     df["selected"] = df["ticker"].isin(selected) | df["cash_like"]
     df.loc[~df["cash_like"] & (df["raw_score"] <= 0), "selected"] = False
@@ -856,19 +901,14 @@ def select_candidates(
 
 def recheck_entry_signals(
     metrics: pd.DataFrame,
-    ohlcv: Dict[str, pd.DataFrame],
-    asof: pd.Timestamp,
     current_selected: Set[str],
     cash_ticker: str,
     max_alloc: float,
-    hurdle_mode: str,
-    momentum_lookback_days: int,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
 ) -> pd.DataFrame:
-    hurdle = compute_benchmark_hurdle(ohlcv, asof, hurdle_mode, momentum_lookback_days)
-    df     = _add_eligibility(metrics.copy(), hurdle)
+    df     = _add_eligibility(metrics.copy())
     df     = _add_scores(df)
     df["selected"] = df["ticker"].isin(current_selected) | df["cash_like"]
 
@@ -963,8 +1003,8 @@ def run_schedule_backtest(
     top_k: int,
     start: str,
     end: str,
-    hurdle_mode: str,
     hold_band: Optional[int],
+    max_alloc: float,
     transaction_cost_bps: int,
     allocation_mode: str,
     execution_mode: str,
@@ -982,7 +1022,7 @@ def run_schedule_backtest(
     if not rebalance_dates:
         return None, None, None, None
 
-    schedule_name = {"W": "Weekly", "M": "Monthly", "Q": "Quarterly"}.get(schedule_code, schedule_code)
+    schedule_name = {"W": "Weekly", "BW": "Biweekly", "M": "Monthly", "Q": "Quarterly"}.get(schedule_code, schedule_code)
     print_progress(
         f"{schedule_name}: {len(rebalance_dates)} rebalances, "
         f"{len(entry_check_dates)} weekly entry checks"
@@ -1028,8 +1068,7 @@ def run_schedule_backtest(
 
             if need_rebalance:
                 alloc = select_candidates(
-                    metrics, ohlcv, dt, cash_ticker, top_k, DEFAULT_MAX_ALLOC,
-                    hurdle_mode, DEFAULT_MOMENTUM_LOOKBACK_DAYS,
+                    metrics, cash_ticker, top_k, max_alloc,
                     allocation_mode, execution_mode, max_wait_pullback,
                     prev_holdings=current_selected, hold_band=hold_band,
                 )
@@ -1038,12 +1077,12 @@ def run_schedule_backtest(
                 )
             else:
                 alloc = recheck_entry_signals(
-                    metrics, ohlcv, dt, current_selected, cash_ticker, DEFAULT_MAX_ALLOC,
-                    hurdle_mode, DEFAULT_MOMENTUM_LOOKBACK_DAYS,
+                    metrics, current_selected, cash_ticker, max_alloc,
                     allocation_mode, execution_mode, max_wait_pullback,
                 )
 
-            target_w = alloc.set_index("ticker")["target_weight"].reindex(universe).fillna(0.0)
+            target_w_map = alloc.set_index("ticker")["target_weight"]
+            target_w = target_w_map.reindex(universe).fillna(0.0)
             turnover = float((target_w - drifted_weights).abs().sum() / 2.0)
 
             if transaction_cost_bps > 0 and turnover > 0:
@@ -1093,15 +1132,21 @@ def allocation_mode(
     export_prefix: str,
     start: Optional[str],
     end: Optional[str],
-    hurdle_mode: str,
     hold_band: Optional[int],
+    max_alloc: float,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
     price_cache_dir: Optional[str],
     refresh_cache: bool,
 ):
-    print_progress("Loading universe and holdings")
+    if not 0 < max_alloc <= 1:
+        raise ValueError("max_alloc must be in the interval (0, 1].")
+    total_steps = 6
+    print_progress("=" * 100)
+    print_progress("ALLOCATION RUN")
+    print_progress("=" * 100)
+    print_step(1, total_steps, "Loading universe and current holdings")
     universe = parse_universe_file(universe_path)
     holdings = read_holdings(holdings_path)
 
@@ -1110,11 +1155,14 @@ def allocation_mode(
         raise ValueError(f"Holdings contain tickers not in universe file: {bad}")
     if cash_ticker not in universe:
         raise ValueError(f"{cash_ticker} must exist in the universe file")
-
     effective_start = start or (datetime.today() - timedelta(days=550)).strftime("%Y-%m-%d")
-    tickers = sorted(set(universe) | BENCHMARK_TICKERS)
-    print_progress(f"Universe: {len(universe)} ETFs  |  {effective_start} → {end or 'latest'}")
+    tickers = sorted(set(universe) | COMPARISON_BENCHMARK_TICKERS)
+    print_progress(
+        f"Universe loaded: {len(universe)} ETFs  |  Holdings rows: {len(holdings)}  |  "
+        f"Price window: {effective_start} -> {end or 'latest'}"
+    )
 
+    print_step(2, total_steps, "Downloading or loading price history")
     ohlcv = download_ohlcv_history(
         tickers,
         start=effective_start,
@@ -1124,14 +1172,16 @@ def allocation_mode(
     )
     close_px = get_close_series(ohlcv)
     asof     = close_px.dropna(how="all").index[-1]
-    print_progress(f"Snapshot: {asof.date()}")
+    print_progress(f"Latest usable snapshot date: {asof.date()}")
 
+    print_step(3, total_steps, "Building feature store")
     feature_store = precompute_feature_store(
         universe, ohlcv, cash_ticker,
         DEFAULT_MOMENTUM_LOOKBACK_DAYS, DEFAULT_BREAKOUT_DAYS,
         DEFAULT_EXIT_DAYS, DEFAULT_ATR_DAYS,
     )
 
+    print_step(4, total_steps, "Scoring ETFs and selecting candidates")
     metrics = build_snapshot_metrics(universe, feature_store, asof)
     print_progress(f"ETFs with sufficient history: {len(metrics)}")
 
@@ -1139,12 +1189,22 @@ def allocation_mode(
     prev_hold = set(current.loc[current["current_weight"] > 0, "ticker"].tolist())
 
     alloc = select_candidates(
-        metrics, ohlcv, asof, cash_ticker, top_k, DEFAULT_MAX_ALLOC,
-        hurdle_mode, DEFAULT_MOMENTUM_LOOKBACK_DAYS,
+        metrics, cash_ticker, top_k, max_alloc,
         allocation_mode, execution_mode, max_wait_pullback,
         prev_holdings=prev_hold, hold_band=hold_band,
     )
+    sel_nc = alloc[alloc["selected"] & ~alloc["cash_like"]].copy()
+    entry_counts = sel_nc["entry_label"].value_counts()
+    cash_target = float(alloc.loc[alloc["ticker"] == cash_ticker, "target_weight"].sum())
+    print_progress(
+        f"Selected non-cash ETFs: {len(sel_nc)}  |  "
+        f"BUY NOW: {int(entry_counts.get('BUY NOW', 0))}  |  "
+        f"WAIT FOR PULLBACK: {int(entry_counts.get('WAIT FOR PULLBACK', 0))}  |  "
+        f"DO NOT BUY: {int(entry_counts.get('DO NOT BUY', 0))}  |  "
+        f"{cash_ticker}: {cash_target:.1%}"
+    )
 
+    print_step(5, total_steps, "Comparing target allocation vs current holdings")
     out = alloc.merge(current, on="ticker", how="left")
     out["current_weight"]         = out["current_weight"].fillna(0.0)
     out["delta_weight"]           = out["target_weight"] - out["current_weight"]
@@ -1159,7 +1219,7 @@ def allocation_mode(
     view = out.sort_values(["target_weight", "raw_score", "ticker"], ascending=[False, False, True])
 
     metrics_cols = [
-        "ticker","last_close","ret_6m","benchmark_hurdle","realized_vol20","atr15",
+        "ticker","last_close","ret_6m","realized_vol20","atr15",
         "above_ema10","above_sma200","sma50_gt_sma200",
         "macd","macd_signal","macd_hist","weekly_macd_hist",
         "breakout_89d","breakout_recent","exit_13d",
@@ -1168,10 +1228,11 @@ def allocation_mode(
         "delta_pct_points","action","rationale",
     ]
     action_cols = [
-        "ticker","entry_label","current_alloc_pct","model_target_alloc_pct",
-        "target_alloc_pct","delta_pct_points","action","rationale",
+        "ticker","entry_label","current_alloc_pct",
+        "target_alloc_pct","delta_pct_points","action",
     ]
 
+    print_step(6, total_steps, "Writing output files")
     view[metrics_cols].to_csv(f"{export_prefix}_full_metrics.csv", index=False)
 
     actions_view = view[action_cols].copy()
@@ -1181,14 +1242,18 @@ def allocation_mode(
     ]
     actions_view.to_csv(f"{export_prefix}_rebalance_actions.csv", index=False)
 
-    print("=" * 100)
-    print("ENHANCED ETF STRATEGY STACK")
-    print("=" * 100)
-    print(f"Allocation mode: {allocation_mode}  |  Execution mode: {execution_mode}  |  Max WAIT FOR PULLBACK: {max_wait_pullback}")
-    print(f"As of: {asof.date()}  |  Benchmark hurdle: {hurdle_mode}")
-    print("Selection: concentrated, benchmark-relative, persistence-aware")
-    print("Execution: MOC assumption; BUY NOW full weight, WAIT FOR PULLBACK partial, residual in SGOV")
     print()
+    print("=" * 100)
+    print("ALLOCATION SUMMARY")
+    print("=" * 100)
+    print(f"As of: {asof.date()}")
+    print(
+        f"Top-k: {top_k}  |  Hold band: {hold_band if hold_band is not None else top_k + DEFAULT_HOLD_BAND_OFFSET}  |  "
+        f"Allocation mode: {allocation_mode}  |  Execution mode: {execution_mode}"
+    )
+    print(f"Max alloc: {max_alloc:.0%}  |  Max WAIT FOR PULLBACK: {max_wait_pullback}  |  Cash ticker: {cash_ticker}")
+    print()
+    print("Recommended rebalance actions")
     print(actions_view.to_string(index=False))
     print()
     print(f"Wrote: {export_prefix}_full_metrics.csv")
@@ -1204,8 +1269,8 @@ def backtest_mode(
     export_prefix: str,
     start: str,
     end: str,
-    hurdle_mode: str,
     hold_band: Optional[int],
+    max_alloc: float,
     transaction_cost_bps: int,
     allocation_mode: str,
     execution_mode: str,
@@ -1213,14 +1278,20 @@ def backtest_mode(
     price_cache_dir: Optional[str],
     refresh_cache: bool,
 ):
+    if not 0 < max_alloc <= 1:
+        raise ValueError("max_alloc must be in the interval (0, 1].")
     print_progress("Loading ETF universe")
     universe = parse_universe_file(universe_path)
+
     if cash_ticker not in universe:
         raise ValueError(f"{cash_ticker} must exist in the universe file")
 
-    tickers        = sorted(set(universe) | BENCHMARK_TICKERS)
+    tickers        = sorted(set(universe) | COMPARISON_BENCHMARK_TICKERS)
     buffered_start = (datetime.fromisoformat(start) - timedelta(days=550)).strftime("%Y-%m-%d")
-    print_progress(f"Universe: {len(universe)} ETFs  |  Backtest: {start} → {end}  |  Download from: {buffered_start}")
+    print_progress(
+        f"Universe: {len(universe)} ETFs from file  |  "
+        f"Backtest: {start} → {end}  |  Download from: {buffered_start}"
+    )
     if transaction_cost_bps:
         print_progress(f"Transaction cost: {transaction_cost_bps} bps/side ({transaction_cost_bps * 2} bps round-trip)")
 
@@ -1239,14 +1310,14 @@ def backtest_mode(
         DEFAULT_EXIT_DAYS, DEFAULT_ATR_DAYS,
     )
 
-    schedules    = {"Weekly": "W", "Monthly": "M", "Quarterly": "Q"}
+    schedules    = {"Weekly": "W", "Biweekly": "BW", "Monthly": "M", "Quarterly": "Q"}
     equity_curves, turnover_tables, weight_tables, entry_tables = {}, {}, {}, {}
     summary_rows: list = []
 
     for label, code in schedules.items():
         result = run_schedule_backtest(
             universe, ohlcv, close_px, feature_store, code, cash_ticker, top_k, start, end,
-            hurdle_mode, hold_band, transaction_cost_bps, allocation_mode, execution_mode, max_wait_pullback,
+            hold_band, max_alloc, transaction_cost_bps, allocation_mode, execution_mode, max_wait_pullback,
         )
         if result[0] is None:
             print_progress(f"Skipping {label}: not enough rebalance points in range")
@@ -1270,7 +1341,7 @@ def backtest_mode(
         })
         summary_rows.append(stats)
 
-    for b in sorted(BENCHMARK_TICKERS):
+    for b in sorted(COMPARISON_BENCHMARK_TICKERS):
         if b in close_px.columns:
             eq    = benchmark_series(close_px, start, end, b)
             stats = metrics_from_equity_curve(eq, pd.Series(dtype=float))
@@ -1304,7 +1375,7 @@ def backtest_mode(
         df.to_csv(f"{export_prefix}_{label.lower()}_entry_labels.csv", index=False)
 
     print("=" * 126)
-    print("BACKTEST SUMMARY: DRIFT-AWARE MOC | WEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ, DIA)")
+    print("BACKTEST SUMMARY: DRIFT-AWARE MOC | WEEKLY vs BIWEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ)")
     print("=" * 126)
 
     disp = summary.copy()
@@ -1335,12 +1406,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--end", help="End date YYYY-MM-DD")
     p.add_argument("--export-prefix", default="etf_strategy")
     p.add_argument(
-        "--benchmark-hurdle", default=DEFAULT_BENCHMARK_HURDLE,
-        choices=["none", "spy", "qqq", "dia", "best_of_3"],
-    )
-    p.add_argument(
         "--hold-band", type=int,
         help=f"Rank threshold for retaining existing holdings. Default: top-k + {DEFAULT_HOLD_BAND_OFFSET}.",
+    )
+    p.add_argument(
+        "--max-alloc", type=float, default=DEFAULT_MAX_ALLOC,
+        help="Maximum allocation per non-cash ETF as a 0-1 fraction. Use 1.0 for no cap.",
     )
     p.add_argument(
         "--transaction-cost-bps", type=int, default=DEFAULT_TRANSACTION_COST_BPS,
@@ -1391,8 +1462,8 @@ def main():
             args.export_prefix,
             args.start,
             args.end,
-            args.benchmark_hurdle,
             args.hold_band,
+            args.max_alloc,
             args.allocation_mode,
             args.execution_mode,
             args.max_wait_pullback,
@@ -1409,8 +1480,8 @@ def main():
             args.export_prefix,
             args.start,
             args.end,
-            args.benchmark_hurdle,
             args.hold_band,
+            args.max_alloc,
             args.transaction_cost_bps,
             args.allocation_mode,
             args.execution_mode,

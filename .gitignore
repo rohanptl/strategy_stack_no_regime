@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local caches
+price_cache/
+
+# Generated run outputs
+backtest_output/
+backtest_output_biweekly/
+backtest_output_param_search/
+grid_backtest_runs/
+grid_backtest_inprocess_runs/
+
+# Generated allocation/backtest CSV artifacts
+etf_strategy_full_metrics.csv
+etf_strategy_rebalance_actions.csv
+*_backtest_summary.csv
+*_equity_curves.csv
+*_weights_history.csv
+*_turnover.csv
+*_entry_labels.csv
+*_grid_combined_results.csv
+*_grid_top10.csv
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

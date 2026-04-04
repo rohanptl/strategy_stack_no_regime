@@ -34,8 +34,11 @@ DEFAULT_START_DATES = [
 ]
 
 DEFAULT_TOP_KS = [3, 4, 5, 6]
-DEFAULT_ALLOCATION_MODES = ["equal", "score_proportional", "momentum_proportional"]
+DEFAULT_ALLOCATION_MODES = ["score_proportional"]
+ALLOCATION_MODE_CHOICES = ["equal", "score_proportional", "momentum_proportional"]
 DEFAULT_EXECUTION_MODES = ["overlay", "pure_topk"]
+DEFAULT_SCHEDULES = ["weekly", "biweekly"]
+SCHEDULE_CODE_MAP = {"weekly": "W", "biweekly": "BW"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,13 +48,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--universe", required=True, help="Path to universe file")
     p.add_argument("--cash-ticker", default="SGOV")
     p.add_argument(
-        "--benchmark-hurdle",
-        default="spy",
-        choices=["none", "spy", "qqq", "dia", "best_of_3"],
+        "--max-alloc", type=float, default=strat.DEFAULT_MAX_ALLOC,
+        help="Maximum allocation per non-cash ETF as a 0-1 fraction. Use 1.0 for no cap.",
     )
     p.add_argument("--hold-band", type=int, default=None)
+    p.add_argument("--hold-bands", nargs="*", type=int, default=None, help="Optional list of hold-band values to sweep.")
     p.add_argument("--transaction-cost-bps", type=int, default=0)
     p.add_argument("--max-wait-pullback", type=int, default=3)
+    p.add_argument(
+        "--max-wait-pullbacks",
+        nargs="*",
+        type=int,
+        default=None,
+        help="Optional list of max-wait-pullback values to sweep.",
+    )
     p.add_argument("--price-cache-dir", default="price_cache")
     p.add_argument("--refresh-cache", action="store_true")
     p.add_argument("--start-dates", nargs="*", default=DEFAULT_START_DATES)
@@ -60,13 +70,20 @@ def parse_args() -> argparse.Namespace:
         "--allocation-modes",
         nargs="*",
         default=DEFAULT_ALLOCATION_MODES,
-        choices=DEFAULT_ALLOCATION_MODES,
+        choices=ALLOCATION_MODE_CHOICES,
     )
     p.add_argument(
         "--execution-modes",
         nargs="*",
         default=DEFAULT_EXECUTION_MODES,
         choices=DEFAULT_EXECUTION_MODES,
+    )
+    p.add_argument(
+        "--schedules",
+        nargs="*",
+        default=DEFAULT_SCHEDULES,
+        choices=list(SCHEDULE_CODE_MAP.keys()),
+        help="Rebalance schedules to test.",
     )
     p.add_argument("--end", default=str(date.today()))
     p.add_argument("--output-dir", default="grid_backtest_inprocess_runs")
@@ -111,7 +128,7 @@ def metrics_from_equity_curve(equity: pd.Series, turnover: pd.Series) -> Dict[st
     }
 
 
-def run_weekly_backtest_fast(
+def run_schedule_backtest_fast(
     universe: List[str],
     ohlcv: Dict[str, pd.DataFrame],
     close_px: pd.DataFrame,
@@ -120,7 +137,8 @@ def run_weekly_backtest_fast(
     top_k: int,
     start: str,
     end: str,
-    hurdle_mode: str,
+    schedule_code: str,
+    max_alloc: float,
     hold_band: Optional[int],
     transaction_cost_bps: int,
     allocation_mode: str,
@@ -128,16 +146,16 @@ def run_weekly_backtest_fast(
     max_wait_pullback: int,
 ):
     """
-    Weekly-only, drift-aware, MOC execution.
+    Schedule-based, drift-aware, MOC execution.
     Minimal memory version: returns equity + turnover only.
     """
     px = close_px.loc[start:end, universe].sort_index().ffill().dropna(how="all")
     if px.empty:
         raise ValueError(f"No price data in {start} → {end}")
 
-    rebalance_dates = {d for d in px.resample(strat.REBALANCE_MAP["W"]).last().index if d in px.index}
+    rebalance_dates = {d for d in px.resample(strat.REBALANCE_MAP[schedule_code]).last().index if d in px.index}
     if not rebalance_dates:
-        raise ValueError(f"No weekly rebalance dates in {start} → {end}")
+        raise ValueError(f"No {schedule_code} rebalance dates in {start} → {end}")
 
     weights = pd.Series(0.0, index=universe, dtype=float)
     weights[cash_ticker] = 1.0
@@ -171,13 +189,9 @@ def run_weekly_backtest_fast(
 
             alloc = strat.select_candidates(
                 metrics=metrics,
-                ohlcv=ohlcv,
-                asof=dt,
                 cash_ticker=cash_ticker,
                 top_k=top_k,
-                max_alloc=strat.DEFAULT_MAX_ALLOC,
-                hurdle_mode=hurdle_mode,
-                momentum_lookback_days=strat.DEFAULT_MOMENTUM_LOOKBACK_DAYS,
+                max_alloc=max_alloc,
                 allocation_mode=allocation_mode,
                 execution_mode=execution_mode,
                 max_wait_pullback=max_wait_pullback,
@@ -189,7 +203,8 @@ def run_weekly_backtest_fast(
                 alloc.loc[alloc["selected"] & ~alloc["cash_like"], "ticker"].tolist()
             )
 
-            target_w = alloc.set_index("ticker")["target_weight"].reindex(universe).fillna(0.0)
+            target_w_map = alloc.set_index("ticker")["target_weight"]
+            target_w = target_w_map.reindex(universe).fillna(0.0)
             turnover = float((target_w - drifted_weights).abs().sum() / 2.0)
 
             if transaction_cost_bps > 0 and turnover > 0:
@@ -215,6 +230,12 @@ def reset_directory(path_str: str, label: str) -> None:
 
 def main() -> None:
     args = parse_args()
+    if not 0 < args.max_alloc <= 1:
+        raise ValueError("max_alloc must be in the interval (0, 1].")
+    hold_bands = args.hold_bands if args.hold_bands is not None else [args.hold_band]
+    max_wait_pullbacks = (
+        args.max_wait_pullbacks if args.max_wait_pullbacks is not None else [args.max_wait_pullback]
+    )
     if args.clean_output_dir:
         reset_directory(args.output_dir, "output directory")
     else:
@@ -231,13 +252,14 @@ def main() -> None:
     if args.cash_ticker.upper() not in universe:
         raise ValueError(f"{args.cash_ticker.upper()} must exist in universe")
 
-    tickers = sorted(set(universe) | strat.BENCHMARK_TICKERS)
+    tickers = sorted(set(universe) | strat.COMPARISON_BENCHMARK_TICKERS)
 
     earliest_start = min(args.start_dates)
     buffered_start = (datetime.fromisoformat(earliest_start) - timedelta(days=550)).strftime("%Y-%m-%d")
 
     print(f"Loading prices once for {len(tickers)} tickers")
     print(f"Date range: {buffered_start} → {args.end}")
+    print(f"Investable universe: {len(universe)} ETFs from file")
 
     ohlcv = strat.download_ohlcv_history(
         tickers=tickers,
@@ -262,22 +284,27 @@ def main() -> None:
     combos = list(itertools.product(
         args.start_dates,
         args.top_ks,
+        hold_bands,
+        max_wait_pullbacks,
         args.allocation_modes,
         args.execution_modes,
+        args.schedules,
     ))
 
-    print(f"Running {len(combos)} weekly-only combinations")
+    print(f"Running {len(combos)} schedule combinations")
 
     results = []
     failure_rows = []
 
-    for idx, (start_date, top_k, allocation_mode, execution_mode) in enumerate(combos, start=1):
+    for idx, (start_date, top_k, hold_band, max_wait_pullback, allocation_mode, execution_mode, schedule_name) in enumerate(combos, start=1):
+        schedule_code = SCHEDULE_CODE_MAP[schedule_name]
         print(
             f"[{idx}/{len(combos)}] RUNNING | "
-            f"start={start_date} | top_k={top_k} | alloc={allocation_mode} | exec={execution_mode}"
+            f"start={start_date} | schedule={schedule_name} | top_k={top_k} | hold_band={hold_band} | "
+            f"max_wait_pullback={max_wait_pullback} | alloc={allocation_mode} | exec={execution_mode}"
         )
         try:
-            eq, to_df = run_weekly_backtest_fast(
+            eq, to_df = run_schedule_backtest_fast(
                 universe=universe,
                 ohlcv=ohlcv,
                 close_px=close_px,
@@ -286,30 +313,51 @@ def main() -> None:
                 top_k=top_k,
                 start=start_date,
                 end=args.end,
-                hurdle_mode=args.benchmark_hurdle,
-                hold_band=args.hold_band,
+                schedule_code=schedule_code,
+                max_alloc=args.max_alloc,
+                hold_band=hold_band,
                 transaction_cost_bps=args.transaction_cost_bps,
                 allocation_mode=allocation_mode,
                 execution_mode=execution_mode,
-                max_wait_pullback=args.max_wait_pullback,
+                max_wait_pullback=max_wait_pullback,
             )
 
             stats = metrics_from_equity_curve(
                 eq,
                 to_df["turnover"] if not to_df.empty else pd.Series(dtype=float),
             )
+
+            benchmark_stats = {}
+            for benchmark in sorted(strat.COMPARISON_BENCHMARK_TICKERS):
+                if benchmark in close_px.columns:
+                    bench_eq = strat.benchmark_series(close_px, start_date, args.end, benchmark)
+                    bench_metrics = metrics_from_equity_curve(bench_eq, pd.Series(dtype=float))
+                    benchmark_stats.update({
+                        f"{benchmark} Total Return": bench_metrics["Total Return"],
+                        f"{benchmark} CAGR": bench_metrics["CAGR"],
+                        f"{benchmark} Sharpe": bench_metrics["Sharpe"],
+                        f"{benchmark} Max Drawdown": bench_metrics["Max Drawdown"],
+                    })
+                    benchmark_stats[f"Excess Total Return vs {benchmark}"] = (
+                        stats["Total Return"] - bench_metrics["Total Return"]
+                    )
+                    benchmark_stats[f"Excess CAGR vs {benchmark}"] = (
+                        stats["CAGR"] - bench_metrics["CAGR"]
+                    )
+
             stats.update({
-                "Schedule": "Weekly",
+                "Schedule": schedule_name.title(),
                 "start_date": start_date,
                 "end_date": args.end,
                 "top_k": top_k,
+                "max_alloc": args.max_alloc,
                 "allocation_mode": allocation_mode,
                 "execution_mode": execution_mode,
-                "benchmark_hurdle": args.benchmark_hurdle,
-                "hold_band": args.hold_band,
+                "hold_band": hold_band,
                 "transaction_cost_bps": args.transaction_cost_bps,
-                "max_wait_pullback": args.max_wait_pullback,
+                "max_wait_pullback": max_wait_pullback,
             })
+            stats.update(benchmark_stats)
             results.append(stats)
 
             print(
@@ -319,7 +367,8 @@ def main() -> None:
 
             if args.save_equity_curves:
                 run_name = (
-                    f"start_{start_date}__topk_{top_k}"
+                    f"start_{start_date}__schedule_{schedule_name}__topk_{top_k}"
+                    f"__hold_{hold_band}__wait_{max_wait_pullback}"
                     f"__alloc_{allocation_mode}__exec_{execution_mode}"
                 ).replace(":", "-")
                 eq.to_csv(outdir / f"{run_name}__weekly_equity.csv", index=True)
@@ -327,14 +376,18 @@ def main() -> None:
         except Exception as e:
             failure_rows.append({
                 "start_date": start_date,
+                "schedule": schedule_name,
                 "top_k": top_k,
+                "hold_band": hold_band,
+                "max_wait_pullback": max_wait_pullback,
                 "allocation_mode": allocation_mode,
                 "execution_mode": execution_mode,
                 "error": str(e),
             })
             print(
                 f"[{idx}/{len(combos)}] FAILED | "
-                f"start={start_date} | top_k={top_k} | alloc={allocation_mode} | exec={execution_mode} | {e}"
+                f"start={start_date} | schedule={schedule_name} | top_k={top_k} | hold_band={hold_band} | "
+                f"max_wait_pullback={max_wait_pullback} | alloc={allocation_mode} | exec={execution_mode} | {e}"
             )
 
     if results:
