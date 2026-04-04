@@ -1,0 +1,21 @@
+[00:47:02] Loading ETF universe
+[00:47:02] Universe: 141 ETFs  |  Backtest: 2025-06-01 → 2026-04-03  |  Download from: 2023-11-29
+[00:47:02] Loaded 142/142 tickers from cache
+[00:47:05] Weekly: 42 rebalances, 42 weekly entry checks
+[00:47:07] Monthly: 6 rebalances, 42 weekly entry checks
+[00:47:10] Quarterly: 4 rebalances, 42 weekly entry checks
+[00:47:12] Writing output files
+==============================================================================================================================
+BACKTEST SUMMARY: DRIFT-AWARE MOC | WEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ, DIA)
+==============================================================================================================================
+ Schedule Total Return   CAGR Annual Vol Sharpe Max Drawdown Calmar Avg Turnover/Trade Date  Num Trade Dates Avg BUY NOW Count Avg WAIT Count Avg DO NOT BUY Avg SGOV Weight
+Quarterly       24.31% 29.88%     36.44%   0.90      -24.19%   1.24                   9.25%               42              1.11           2.96           0.50           8.70%
+   Weekly       20.00% 24.49%     31.08%   0.86      -25.63%   0.96                  66.80%               42              3.14           1.86           0.00           0.00%
+  Monthly       15.13% 18.44%     34.16%   0.67      -24.19%   0.76                  12.86%               43              1.32           2.81           0.45           8.51%
+      QQQ       12.35% 15.01%     15.69%   0.96      -11.96%   1.25                   0.00%                0                                                                
+      SPY       11.92% 14.49%     11.86%   1.19       -8.88%   1.63                   0.00%                0                                                                
+      DIA       11.33% 13.77%     11.97%   1.13       -9.76%   1.41                   0.00%                0                                                                
+
+Wrote: grid_backtest_runs/start_2025-06-01__topk_5__alloc_momentum_proportional__exec_pure_topk_backtest_summary.csv
+Wrote: grid_backtest_runs/start_2025-06-01__topk_5__alloc_momentum_proportional__exec_pure_topk_equity_curves.csv
+Wrote schedule turnover, weights-history, and entry-label CSVs

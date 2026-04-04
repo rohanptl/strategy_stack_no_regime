@@ -1,0 +1,21 @@
+[00:46:04] Loading ETF universe
+[00:46:04] Universe: 141 ETFs  |  Backtest: 2025-06-01 → 2026-04-03  |  Download from: 2023-11-29
+[00:46:04] Loaded 142/142 tickers from cache
+[00:46:07] Weekly: 42 rebalances, 42 weekly entry checks
+[00:46:10] Monthly: 6 rebalances, 42 weekly entry checks
+[00:46:12] Quarterly: 4 rebalances, 42 weekly entry checks
+[00:46:15] Writing output files
+==============================================================================================================================
+BACKTEST SUMMARY: DRIFT-AWARE MOC | WEEKLY vs MONTHLY vs QUARTERLY vs BENCHMARKS (SPY, QQQ, DIA)
+==============================================================================================================================
+ Schedule Total Return   CAGR Annual Vol Sharpe Max Drawdown Calmar Avg Turnover/Trade Date  Num Trade Dates Avg BUY NOW Count Avg WAIT Count Avg DO NOT BUY Avg SGOV Weight
+   Weekly       39.11% 48.68%     19.58%   2.11       -9.17%   5.31                  67.99%               42              3.14           1.86           0.00          20.48%
+Quarterly       17.32% 21.15%     17.47%   1.18      -10.92%   1.94                  26.44%               42              1.11           2.96           0.50          54.78%
+  Monthly       12.42% 15.11%     16.36%   0.94      -10.92%   1.38                  27.11%               43              1.32           2.81           0.45          50.85%
+      QQQ       12.35% 15.01%     15.69%   0.96      -11.96%   1.25                   0.00%                0                                                                
+      SPY       11.92% 14.49%     11.86%   1.19       -8.88%   1.63                   0.00%                0                                                                
+      DIA       11.33% 13.77%     11.97%   1.13       -9.76%   1.41                   0.00%                0                                                                
+
+Wrote: grid_backtest_runs/start_2025-06-01__topk_5__alloc_equal__exec_overlay_backtest_summary.csv
+Wrote: grid_backtest_runs/start_2025-06-01__topk_5__alloc_equal__exec_overlay_equity_curves.csv
+Wrote schedule turnover, weights-history, and entry-label CSVs
