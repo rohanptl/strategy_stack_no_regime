@@ -6,11 +6,11 @@ on:
       top_k:
         description: "Number of ETFs to target"
         required: false
-        default: "5"
+        default: "3"
       hold_band:
         description: "Hold band"
         required: false
-        default: "7"
+        default: "9"
       export_prefix:
         description: "Output file prefix"
         required: false
@@ -26,7 +26,7 @@ on:
       max_wait_pullback:
         description: "Max WAIT FOR PULLBACK names to partially allocate"
         required: false
-        default: "1"
+        default: "3"
       max_alloc:
         description: "Max allocation per non-cash ETF (0-1)"
         required: false
