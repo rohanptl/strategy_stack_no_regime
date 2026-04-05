@@ -1,0 +1,50 @@
+Vanguard Emerging Markets Stock Index Fund Institutional Shares
+VEMIX
+
+Vanguard Extended Market Index Fund Institutional Plus Shares
+VEMPX
+
+Vanguard FTSE Social Index Fund Admiral Shares
+VFTAX
+
+Vanguard Growth Index Fund Institutional Shares
+VIGIX
+
+Vanguard Institutional Index Fund Institutional Plus Shares
+VIIIX
+
+Vanguard Mid-Cap Index Fund Admiral Shares
+VIMAX
+
+Vanguard Mid-Cap Growth Index Fund Admiral Shares
+VMGMX
+
+Vanguard Mid-Cap Value Index Fund Admiral Shares
+VMVAX
+
+Vanguard Small-Cap Value Index Fund Admiral Shares
+VSIAX
+
+Vanguard Small-Cap Index Fund Admiral Shares
+VSMAX
+
+Vanguard Total International Stock Index Fund Institutional Plus Shares
+VTPSX
+
+Vanguard Total Stock Market Index Fund Admiral Shares
+VTSAX
+
+Vanguard Value Index Fund Admiral Shares
+VVIAX
+
+Vanguard Real Estate Index Fund Institutional Shares
+VGSNX
+
+Vanguard Materials Index Fund Admiral Shares
+VMIAX
+
+Vanguard Wellesley Income Fund Admiral Shares
+VWIAX
+
+iShares 0-3 Month Treasury Bond ETF
+SGOV
