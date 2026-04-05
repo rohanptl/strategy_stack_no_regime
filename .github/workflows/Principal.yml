@@ -6,18 +6,43 @@ on:
       top_k:
         description: "Number of ETFs to target"
         required: false
-        default: "3"
+        default: "5"
       hold_band:
         description: "Hold band"
         required: false
-        default: "5"
+        default: "7"
       export_prefix:
         description: "Output file prefix"
         required: false
         default: "Principal_alloc"
+      allocation_mode:
+        description: "Allocation mode"
+        required: false
+        default: "score_proportional"
+      execution_mode:
+        description: "Execution mode"
+        required: false
+        default: "overlay"
+      max_wait_pullback:
+        description: "Max WAIT FOR PULLBACK names to partially allocate"
+        required: false
+        default: "1"
+      max_alloc:
+        description: "Max allocation per non-cash ETF (0-1)"
+        required: false
+        default: ".35"
+      refresh_cache:
+        description: "Refresh cached prices instead of reusing parquet cache"
+        required: false
+        type: boolean
+        default: true
 
   schedule:
     - cron: "15 14 * * 0"
+
+concurrency:
+  group: Principal-allocate-and-email
+  cancel-in-progress: true
 
 jobs:
   allocate-and-email:
@@ -33,6 +58,11 @@ jobs:
       DEFAULT_TOP_K: 5
       DEFAULT_HOLD_BAND: 7
       DEFAULT_EXPORT_PREFIX: Principal_alloc
+      DEFAULT_ALLOCATION_MODE: score_proportional
+      DEFAULT_EXECUTION_MODE: overlay
+      DEFAULT_MAX_WAIT_PULLBACK: 1
+      DEFAULT_MAX_ALLOC: 1.0
+      PRICE_CACHE_DIR: .cache/prices
       GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
       PERSONAL_EMAIL: ${{ secrets.PERSONAL_EMAIL }}
@@ -40,6 +70,8 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          ref: allocation_execution_modes
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,7 +81,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy yfinance openpyxl tabulate
+          pip install pandas numpy yfinance openpyxl pyarrow
 
       - name: Resolve runtime parameters
         id: params
@@ -59,24 +91,50 @@ jobs:
             echo "top_k=${{ inputs.top_k }}" >> "$GITHUB_OUTPUT"
             echo "hold_band=${{ inputs.hold_band }}" >> "$GITHUB_OUTPUT"
             echo "export_prefix=${{ inputs.export_prefix }}" >> "$GITHUB_OUTPUT"
+            echo "allocation_mode=${{ inputs.allocation_mode }}" >> "$GITHUB_OUTPUT"
+            echo "execution_mode=${{ inputs.execution_mode }}" >> "$GITHUB_OUTPUT"
+            echo "max_wait_pullback=${{ inputs.max_wait_pullback }}" >> "$GITHUB_OUTPUT"
+            echo "max_alloc=${{ inputs.max_alloc }}" >> "$GITHUB_OUTPUT"
+            echo "refresh_cache=${{ inputs.refresh_cache }}" >> "$GITHUB_OUTPUT"
           else
             echo "top_k=${DEFAULT_TOP_K}" >> "$GITHUB_OUTPUT"
             echo "hold_band=${DEFAULT_HOLD_BAND}" >> "$GITHUB_OUTPUT"
             echo "export_prefix=${DEFAULT_EXPORT_PREFIX}" >> "$GITHUB_OUTPUT"
+            echo "allocation_mode=${DEFAULT_ALLOCATION_MODE}" >> "$GITHUB_OUTPUT"
+            echo "execution_mode=${DEFAULT_EXECUTION_MODE}" >> "$GITHUB_OUTPUT"
+            echo "max_wait_pullback=${DEFAULT_MAX_WAIT_PULLBACK}" >> "$GITHUB_OUTPUT"
+            echo "max_alloc=${DEFAULT_MAX_ALLOC}" >> "$GITHUB_OUTPUT"
+            echo "refresh_cache=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create output folder
-        run: mkdir -p out
+      - name: Create output and cache folders
+        run: |
+          mkdir -p out
+          mkdir -p "$PRICE_CACHE_DIR"
 
       - name: Run allocation in allocate mode
+        shell: bash
         run: |
-          python "$SCRIPT_PATH" \
-            --mode allocate \
-            --universe "$UNIVERSE_FILE" \
-            --holdings "$HOLDINGS_FILE" \
-            --top-k "${{ steps.params.outputs.top_k }}" \
-            --hold-band "${{ steps.params.outputs.hold_band }}" \
+          cmd=(
+            python "$SCRIPT_PATH"
+            --mode allocate
+            --universe "$UNIVERSE_FILE"
+            --holdings "$HOLDINGS_FILE"
+            --top-k "${{ steps.params.outputs.top_k }}"
+            --hold-band "${{ steps.params.outputs.hold_band }}"
             --export-prefix "out/${{ steps.params.outputs.export_prefix }}"
+            --allocation-mode "${{ steps.params.outputs.allocation_mode }}"
+            --execution-mode "${{ steps.params.outputs.execution_mode }}"
+            --max-wait-pullback "${{ steps.params.outputs.max_wait_pullback }}"
+            --max-alloc "${{ steps.params.outputs.max_alloc }}"
+            --price-cache-dir "$PRICE_CACHE_DIR"
+          )
+
+          if [ "${{ steps.params.outputs.refresh_cache }}" = "true" ]; then
+            cmd+=(--refresh-cache)
+          fi
+
+          "${cmd[@]}"
 
       - name: Build email body and collect attachments
         run: |
@@ -84,7 +142,7 @@ jobs:
           import glob
           import html
           import os
-          from datetime import datetime
+          from datetime import datetime, timezone
 
           import pandas as pd
 
@@ -93,7 +151,6 @@ jobs:
           if not csvs:
               raise SystemExit("No CSV files were generated in out/")
 
-          # Prefer rebalance/action output first, then legacy allocation output
           rebalance_candidates = [
               p for p in csvs
               if p.endswith("_rebalance_actions.csv") or p.endswith("_allocation_changes.csv")
@@ -139,7 +196,6 @@ jobs:
           actions = normalize_columns(actions)
           metrics = normalize_columns(metrics)
 
-          # Fallback: if action file is missing but metrics contains the necessary fields
           if actions.empty and not metrics.empty and {"ticker", "action"}.issubset(metrics.columns):
               actions = metrics.copy()
 
@@ -202,7 +258,7 @@ jobs:
               + os.environ.get("GITHUB_RUN_ID", "")
           )
 
-          generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+          generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
           total_increase = (
               increase_df["delta_pts"].clip(lower=0).sum()
@@ -255,6 +311,17 @@ jobs:
               if rebalance_file else ""
           )
 
+          params_html = (
+              f"<p><b>Parameters:</b> "
+              f"top_k={html.escape(os.environ.get('PARAM_TOP_K', ''))}, "
+              f"hold_band={html.escape(os.environ.get('PARAM_HOLD_BAND', ''))}, "
+              f"allocation_mode={html.escape(os.environ.get('PARAM_ALLOCATION_MODE', ''))}, "
+              f"execution_mode={html.escape(os.environ.get('PARAM_EXECUTION_MODE', ''))}, "
+              f"max_wait_pullback={html.escape(os.environ.get('PARAM_MAX_WAIT_PULLBACK', ''))}, "
+              f"max_alloc={html.escape(os.environ.get('PARAM_MAX_ALLOC', ''))}"
+              f"</p>"
+          )
+
           body = f"""
           <html>
             <body style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
@@ -265,6 +332,8 @@ jobs:
                 <b>Repository:</b> {html.escape(os.environ.get("GITHUB_REPOSITORY", ""))}<br>
                 <b>Run:</b> <a href="{html.escape(run_url)}">{html.escape(run_url)}</a>
               </p>
+
+              {params_html}
 
               <h3>Rebalance summary</h3>
               <p>{summary_html}</p>
@@ -293,6 +362,13 @@ jobs:
               for path in csvs:
                   f.write(path + "\n")
           PY
+        env:
+          PARAM_TOP_K: ${{ steps.params.outputs.top_k }}
+          PARAM_HOLD_BAND: ${{ steps.params.outputs.hold_band }}
+          PARAM_ALLOCATION_MODE: ${{ steps.params.outputs.allocation_mode }}
+          PARAM_EXECUTION_MODE: ${{ steps.params.outputs.execution_mode }}
+          PARAM_MAX_WAIT_PULLBACK: ${{ steps.params.outputs.max_wait_pullback }}
+          PARAM_MAX_ALLOC: ${{ steps.params.outputs.max_alloc }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -351,7 +427,7 @@ jobs:
                       af.read(),
                       maintype=maintype,
                       subtype=subtype,
-                      filename=os.path.basename(path)
+                      filename=os.path.basename(path),
                   )
 
           with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
