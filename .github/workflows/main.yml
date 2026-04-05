@@ -26,16 +26,16 @@ on:
       max_wait_pullback:
         description: "Max WAIT FOR PULLBACK names to partially allocate"
         required: false
-        default: "3"
+        default: "1"
       max_alloc:
         description: "Max allocation per non-cash ETF (0-1)"
         required: false
-        default: "1.0"
+        default: ".35"
       refresh_cache:
         description: "Refresh cached prices instead of reusing parquet cache"
         required: false
         type: boolean
-        default: false
+        default: true
 
   schedule:
     - cron: "45 13 * * 0"
