@@ -36,56 +36,11 @@ DEFAULT_VOL_DAYS               = 20
 DEFAULT_MOMENTUM_LOOKBACK_DAYS = 126
 DEFAULT_PULLBACK_EMA_BUFFER    = 0.02
 DEFAULT_EXTENDED_FROM_EMA      = 0.05
-DEFAULT_WAIT_PULLBACK_NEAR_EMA = 0.08
-DEFAULT_WAIT_PULLBACK_MID_MULTIPLIER = 0.75
-DEFAULT_WAIT_PULLBACK_FAR_MULTIPLIER = 0.45
-DEFAULT_WAIT_PULLBACK_MIN_MULTIPLIER = 0.25
-DEFAULT_WAIT_PULLBACK_MAX_MULTIPLIER = 1.00
-DEFAULT_BREADTH_FULLY_RISK_ON  = 0.90
-DEFAULT_DEFENSE_BREADTH_THRESHOLD = 0.45
-DEFAULT_DEFENSE_PARTICIPATION_THRESHOLD = 0.25
-DEFAULT_DEFENSE_ACTIVE_MULTIPLIER = 0.75
-DEFAULT_DEFENSE_WAIT_MULTIPLIER = 0.60
-DEFAULT_WAIT_PULLBACK_BREADTH_BONUS_SLOTS = 3
-DEFAULT_BUY_NOW_MIN_BUDGET = 0.50
-DEFAULT_BUY_NOW_MAX_BUDGET = 0.70
-DEFAULT_WAIT_PULLBACK_MIN_BUDGET = 0.20
-DEFAULT_WAIT_PULLBACK_MAX_BUDGET = 0.40
-DEFAULT_MIN_EXECUTABLE_FOR_CASH_CAP = 5
-DEFAULT_MAX_CASH_WHEN_ENOUGH = 0.20
-DEFAULT_VOL_TARGETING_EXPONENT = 0.50
-DEFAULT_REBALANCE_INERTIA = 0.90
-DEFAULT_WAIT_ONLY_ACTIVE_MULTIPLIER = 0.50
-DEFAULT_WAIT_ONLY_MAX_ACTIVE_MULTIPLIER = 0.80
-DEFAULT_RECOVERING_TOTAL_BUDGET = 0.10
-DEFAULT_RECOVERING_MAX_NAMES = 2
-DEFAULT_RECOVERING_MIN_IMPROVEMENT = 2.5
-DEFAULT_SELECTION_TOP_N         = 8
-DEFAULT_CONCENTRATION_EXPONENT  = 3.0
-DEFAULT_CONCENTRATION_MIN_PERSISTENCE = 0.80
-DEFAULT_LOW_PERSISTENCE_MAX_ALLOC = 0.20
-DEFAULT_RISK_ON_BREADTH_THRESHOLD = 0.65
-DEFAULT_DEFENSIVE_RISK_ON_PENALTY = 3.0
 DEFAULT_HOLD_BAND_OFFSET       = 2
 DEFAULT_TRANSACTION_COST_BPS   = 0
 
 COMPARISON_BENCHMARK_TICKERS = {"SPY", "QQQ"}
 REBALANCE_MAP                = {"W": "W-FRI", "BW": "2W-FRI", "M": "ME", "Q": "QE"}
-
-COVERED_CALL_AND_INCOME_TICKERS = {
-    "DIV", "DVYE", "JEPI", "JEPQ", "QYLD", "RYLD", "SDIV",
-    "SPYD", "TDIV", "VYMI", "XYLD",
-}
-
-FIXED_INCOME_TICKERS = {"ANGL", "BNDX", "EBND", "VWOB"}
-COMMODITY_TICKERS = {"GDX", "GDXJ", "GLDM", "SLV", "SLVP"}
-MLP_TICKERS = {"AMLP", "MLPA"}
-SINGLE_COUNTRY_TICKERS = {
-    "BBCA", "BBJP", "ECH", "EIDO", "EIS", "EPOL", "EWA", "EWD", "EWG", "EWH",
-    "EWI", "EWL", "EWM", "EWN", "EWP", "EWQ", "EWS", "EWT", "EWU", "EWW",
-    "EWY", "EZA", "INDA", "KSA", "MCHI", "SMIN", "THD", "TUR", "UAE",
-}
-DEFENSIVE_TICKERS = {"SPLV", "XLP", "XLU"}
 
 
 # ── utilities ──────────────────────────────────────────────────────────────
@@ -127,43 +82,6 @@ def parse_key_value_string(spec: Optional[str], cast=float) -> Dict[str, object]
         key, value = item.split("=", 1)
         out[key.strip()] = cast(value.strip())
     return out
-
-
-def filter_universe_tickers(
-    tickers: List[str],
-    cash_ticker: str,
-    clean_universe: bool,
-    exclude_income_funds: bool,
-) -> Tuple[List[str], Dict[str, str]]:
-    filtered: List[str] = []
-    dropped: Dict[str, str] = {}
-
-    for ticker in tickers:
-        if ticker == cash_ticker:
-            filtered.append(ticker)
-            continue
-
-        if exclude_income_funds and ticker in COVERED_CALL_AND_INCOME_TICKERS:
-            dropped[ticker] = "income_or_covered_call"
-            continue
-
-        if clean_universe:
-            if ticker in FIXED_INCOME_TICKERS:
-                dropped[ticker] = "fixed_income"
-                continue
-            if ticker in COMMODITY_TICKERS:
-                dropped[ticker] = "commodity_or_miner"
-                continue
-            if ticker in MLP_TICKERS:
-                dropped[ticker] = "mlp"
-                continue
-            if ticker in SINGLE_COUNTRY_TICKERS:
-                dropped[ticker] = "single_country"
-                continue
-
-        filtered.append(ticker)
-
-    return filtered, dropped
 
 
 def derive_sleeve_topk(top_k: int, sleeve_targets: Dict[str, float]) -> Dict[str, int]:
@@ -351,7 +269,7 @@ def download_ohlcv_history(
         return cached
 
     print_progress(
-        f"Downloading {len(missing)} missing tickers  |  {start or 'max'} -> {end or 'latest'}"
+        f"Downloading {len(missing)} missing tickers  |  {start or 'max'} → {end or 'latest'}"
     )
 
     downloaded: Dict[str, pd.DataFrame] = {}
@@ -564,15 +482,6 @@ def precompute_feature_store(
         feat["atr15"]            = atr15
         feat["realized_vol20"]   = rv20
         feat["ret_6m"]           = close / close.shift(momentum_lookback_days) - 1.0
-        feat["dist_from_ema10"]  = close / ema10 - 1.0
-        feat["trend_stack_persist_20d"] = ((close > sma200) & (sma50 > sma200)).astype(float).rolling(20).mean()
-        feat["ema_persist_20d"]         = (close > ema10).astype(float).rolling(20).mean()
-        feat["macd_persist_20d"]        = (hist > 0).astype(float).rolling(20).mean()
-        feat["weekly_macd_persist_8w"]  = (wkly_hist > 0).astype(float).rolling(40).mean()
-        feat["ret_6m_change_20d"]       = feat["ret_6m"] - feat["ret_6m"].shift(20)
-        feat["macd_hist_change_10d"]    = hist - hist.shift(10)
-        feat["weekly_macd_change_20d"]  = wkly_hist - wkly_hist.shift(20)
-        feat["ema_persist_change_20d"]  = feat["ema_persist_20d"] - feat["ema_persist_20d"].shift(20)
         feat["breakout_89d"]     = close > prior_high
         feat["breakout_recent"]  = close > recent_max
         feat["exit_13d"]         = close < prior_low
@@ -626,9 +535,6 @@ def build_snapshot_metrics(
     numeric_cols = [
         "last_close", "sma50", "sma200", "ema10", "macd", "macd_signal",
         "macd_hist", "weekly_macd_hist", "atr15", "realized_vol20", "ret_6m",
-        "dist_from_ema10", "trend_stack_persist_20d", "ema_persist_20d",
-        "macd_persist_20d", "weekly_macd_persist_8w", "ret_6m_change_20d",
-        "macd_hist_change_10d", "weekly_macd_change_20d", "ema_persist_change_20d",
     ]
     for col in numeric_cols:
         out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -636,12 +542,7 @@ def build_snapshot_metrics(
     cols = [
         "ticker", "last_close", "sma50", "sma200", "ema10", "macd",
         "macd_signal", "macd_hist", "weekly_macd_hist", "atr15",
-        "realized_vol20", "ret_6m", "dist_from_ema10",
-        "trend_stack_persist_20d", "ema_persist_20d",
-        "macd_persist_20d", "weekly_macd_persist_8w",
-        "ret_6m_change_20d", "macd_hist_change_10d",
-        "weekly_macd_change_20d", "ema_persist_change_20d",
-        "breakout_89d", "breakout_recent",
+        "realized_vol20", "ret_6m", "breakout_89d", "breakout_recent",
         "exit_13d", "above_ema10", "above_sma200", "sma50_gt_sma200", "cash_like",
     ]
     return out[cols].reset_index(drop=True)
@@ -653,36 +554,28 @@ def capped_normalize(
     weights: pd.Series,
     max_cap: float,
     uncapped_tickers: Optional[Set[str]] = None,
-    ticker_caps: Optional[Dict[str, float]] = None,
 ) -> pd.Series:
     """
     Cap non-uncapped tickers at max_cap without forcing the result to sum to 1.
     Any residual should be handled by the caller (typically sent to cash).
     """
     uncapped_tickers = uncapped_tickers or set()
-    ticker_caps = ticker_caps or {}
     w = weights.copy().fillna(0.0).clip(lower=0.0)
     if w.sum() <= 0:
         return w
 
     w = w / w.sum()
 
-    def _cap_for_ticker(ticker: str) -> float:
-        return float(ticker_caps.get(ticker, max_cap))
-
     for _ in range(50):
-        over = [
-            t for t in w.index
-            if t not in uncapped_tickers and w[t] > _cap_for_ticker(t) + 1e-12
-        ]
+        over = [t for t in w.index if t not in uncapped_tickers and w[t] > max_cap + 1e-12]
         if not over:
             break
 
         for t in over:
-            w[t] = _cap_for_ticker(t)
+            w[t] = max_cap
 
         capped_mask = pd.Series(
-            [t not in uncapped_tickers and w[t] >= _cap_for_ticker(t) - 1e-12 for t in w.index],
+            [t not in uncapped_tickers and w[t] >= max_cap - 1e-12 for t in w.index],
             index=w.index,
         )
 
@@ -712,7 +605,6 @@ def _add_eligibility(df: pd.DataFrame) -> pd.DataFrame:
 def _add_scores(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     score = np.zeros(len(df), dtype=float)
-    non_cash = df[~df["cash_like"]].copy()
 
     score += df["above_sma200"].astype(float)           * 3.0
     score += df["sma50_gt_sma200"].astype(float)        * 2.5
@@ -732,21 +624,6 @@ def _add_scores(df: pd.DataFrame) -> pd.DataFrame:
             (df.loc[eligible_mask, "ret_6m"] - mn) / (mx - mn + 1e-12)
         ).to_numpy() * 5.0
 
-    persistence_features = [
-        ("trend_stack_persist_20d", 3.0),
-        ("ema_persist_20d", 2.0),
-        ("macd_persist_20d", 2.0),
-        ("weekly_macd_persist_8w", 1.5),
-    ]
-    for col, weight in persistence_features:
-        if eligible_mask.any() and df.loc[eligible_mask, col].notna().any():
-            mn = df.loc[eligible_mask, col].min()
-            mx = df.loc[eligible_mask, col].max()
-            idx = df.loc[eligible_mask].index
-            score[idx] += (
-                (df.loc[eligible_mask, col] - mn) / (mx - mn + 1e-12)
-            ).to_numpy() * weight
-
     if eligible_mask.any() and df.loc[eligible_mask, "realized_vol20"].notna().any():
         mn = df.loc[eligible_mask, "realized_vol20"].min()
         mx = df.loc[eligible_mask, "realized_vol20"].max()
@@ -755,77 +632,31 @@ def _add_scores(df: pd.DataFrame) -> pd.DataFrame:
             1.0 - (df.loc[eligible_mask, "realized_vol20"] - mn) / (mx - mn + 1e-12)
         ).to_numpy() * 1.0
 
-    score += (df["trend_stack_persist_20d"] >= 0.8).astype(float) * 1.5
-    score += (df["ema_persist_20d"] >= 0.7).astype(float) * 1.0
-    score += (df["macd_persist_20d"] >= 0.65).astype(float) * 1.0
-    score -= (df["trend_stack_persist_20d"] < 0.4).astype(float) * 1.5
-    score -= (df["macd_persist_20d"] < 0.35).astype(float) * 1.0
-    score -= (df["dist_from_ema10"] > DEFAULT_WAIT_PULLBACK_NEAR_EMA).astype(float) * 1.5
     score -= df["exit_13d"].astype(float) * 4.0
-
-    if not non_cash.empty:
-        trend_breadth = float(
-            (
-                non_cash["above_sma200"].astype(bool)
-                & non_cash["sma50_gt_sma200"].astype(bool)
-            ).mean()
-        )
-        ema_breadth = float(non_cash["above_ema10"].astype(bool).mean())
-        momentum_breadth = float(
-            (
-                (non_cash["macd_hist"] > 0)
-                & (non_cash["weekly_macd_hist"] > 0)
-            ).mean()
-        )
-        risk_on_breadth = float(np.mean([trend_breadth, ema_breadth, momentum_breadth]))
-        if risk_on_breadth >= DEFAULT_RISK_ON_BREADTH_THRESHOLD:
-            defensive_mask = df["ticker"].isin(DEFENSIVE_TICKERS)
-            score -= defensive_mask.astype(float) * DEFAULT_DEFENSIVE_RISK_ON_PENALTY
 
     df["raw_score"] = score
     df.loc[~df["eligible"] & ~df["cash_like"], "raw_score"] = 0.0
-    improvement = np.zeros(len(df), dtype=float)
-    improvement += df["ret_6m_change_20d"].fillna(0.0).to_numpy() * 12.0
-    improvement += df["macd_hist_change_10d"].fillna(0.0).to_numpy() * 8.0
-    improvement += df["weekly_macd_change_20d"].fillna(0.0).to_numpy() * 6.0
-    improvement += df["ema_persist_change_20d"].fillna(0.0).to_numpy() * 4.0
-    improvement += (df["above_ema10"].astype(bool) & (df["macd_hist_change_10d"] > 0)).astype(float).to_numpy() * 1.0
-    df["improvement_score"] = improvement
     return df
-
-
-def _compute_concentration_persistence(frame: pd.DataFrame) -> pd.Series:
-    persistence_cols = {
-        "trend_stack_persist_20d": 0.35,
-        "ema_persist_20d": 0.25,
-        "macd_persist_20d": 0.20,
-        "weekly_macd_persist_8w": 0.20,
-    }
-    persist_df = frame.set_index("ticker")[list(persistence_cols)].copy()
-    persist_df = persist_df.apply(pd.to_numeric, errors="coerce").fillna(0.0).clip(lower=0.0, upper=1.0)
-    weights = pd.Series(persistence_cols, dtype=float)
-    return persist_df.mul(weights, axis=1).sum(axis=1)
 
 def build_model_weights(
     df: pd.DataFrame,
     cash_ticker: str,
     max_alloc: float,
     allocation_mode: str,
-    concentration_exponent: float = DEFAULT_CONCENTRATION_EXPONENT,
     ticker_to_sleeve: Optional[Dict[str, str]] = None,
     sleeve_targets: Optional[Dict[str, float]] = None,
     sleeve_max_allocs: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     """
-    Build model_target_weight globally across selected non-cash ETFs.
+    Build model_target_weight from selected ETFs using the chosen allocation mode.
+    Residual always goes to cash_ticker.
     """
     df = df.copy()
     df["target_weight"] = 0.0
-    df["concentration_persistence"] = 0.0
-    df["concentration_ready"] = False
 
     sel_nc = df[df["selected"] & ~df["cash_like"]].copy()
     if sel_nc.empty:
+        df.loc[df["ticker"] == cash_ticker, "target_weight"] = 1.0
         return df
 
     def _base_weights(frame: pd.DataFrame) -> pd.Series:
@@ -835,53 +666,43 @@ def build_model_weights(
             w = frame.set_index("ticker")["raw_score"].clip(lower=0.0)
             if float(w.sum()) <= 0:
                 w = pd.Series(1.0, index=frame["ticker"])
-            else:
-                w = w.pow(concentration_exponent)
         elif allocation_mode == "momentum_proportional":
             w = frame.set_index("ticker")["ret_6m"].clip(lower=0.0)
             if float(w.sum()) <= 0:
                 w = pd.Series(1.0, index=frame["ticker"])
-            else:
-                w = w.pow(concentration_exponent)
         else:
             raise ValueError(f"Unsupported allocation mode: {allocation_mode}")
         return w / float(w.sum())
 
-    w = _base_weights(sel_nc)
-    vol = sel_nc.set_index("ticker")["realized_vol20"].replace(0.0, np.nan)
-    if vol.notna().any():
-        inv_vol = (1.0 / vol.clip(lower=1e-6)) ** DEFAULT_VOL_TARGETING_EXPONENT
-        inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan).fillna(inv_vol[inv_vol.notna()].median() if inv_vol.notna().any() else 1.0)
-        w = (w * inv_vol).fillna(0.0)
-        if float(w.sum()) > 0:
-            w = w / float(w.sum())
+    if ticker_to_sleeve and sleeve_targets:
+        sel_nc["sleeve"] = sel_nc["ticker"].map(lambda t: ticker_to_sleeve.get(t, "general"))
+        for sleeve, sleeve_budget in sleeve_targets.items():
+            sleeve_budget = float(sleeve_budget)
+            if sleeve_budget <= 0:
+                continue
+            sleeve_df = sel_nc[sel_nc["sleeve"] == sleeve].copy()
+            if sleeve_df.empty:
+                continue
 
-    persistence = _compute_concentration_persistence(sel_nc)
-    df.loc[df["ticker"].isin(persistence.index), "concentration_persistence"] = (
-        df.loc[df["ticker"].isin(persistence.index), "ticker"].map(persistence).astype(float)
-    )
-    df.loc[df["ticker"].isin(persistence.index), "concentration_ready"] = (
-        df.loc[df["ticker"].isin(persistence.index), "ticker"].map(
-            lambda t: float(persistence.get(t, 0.0)) >= DEFAULT_CONCENTRATION_MIN_PERSISTENCE
-        ).astype(bool)
-    )
+            w = _base_weights(sleeve_df)
+            cap_total = max_alloc
+            if sleeve_max_allocs and sleeve in sleeve_max_allocs:
+                cap_total = float(sleeve_max_allocs[sleeve])
+            local_cap = min(1.0, cap_total / sleeve_budget) if sleeve_budget > 0 else 1.0
+            w = capped_normalize(w, max_cap=local_cap)
+            w = w * sleeve_budget
 
-    low_persistence_cap = min(max_alloc, DEFAULT_LOW_PERSISTENCE_MAX_ALLOC)
-    ticker_caps = {
-        ticker: low_persistence_cap
-        for ticker, persist in persistence.items()
-        if float(persist) < DEFAULT_CONCENTRATION_MIN_PERSISTENCE
-    }
-
-    # New or weakly persistent trends can still be owned, but they are not
-    # allowed to become oversized positions immediately.
-    w = capped_normalize(w, max_cap=max_alloc, ticker_caps=ticker_caps)
-    for t, wt in w.items():
-        df.loc[df["ticker"] == t, "target_weight"] = float(wt)
+            for t, wt in w.items():
+                df.loc[df["ticker"] == t, "target_weight"] = float(wt)
+    else:
+        w = _base_weights(sel_nc)
+        w = capped_normalize(w, max_cap=max_alloc)
+        for t, wt in w.items():
+            df.loc[df["ticker"] == t, "target_weight"] = float(wt)
 
     residual = 1.0 - float(df["target_weight"].sum())
     cash_mask = df["ticker"] == cash_ticker
-    if cash_mask.any() and residual > 1e-12:
+    if cash_mask.any():
         df.loc[cash_mask, "target_weight"] += residual
 
     total = float(df["target_weight"].sum())
@@ -997,15 +818,14 @@ def apply_entry_labels_and_allocate(
     max_alloc: float,
     execution_mode: str,
     max_wait_pullback: int,
-    min_executable_for_cash_cap: int = DEFAULT_MIN_EXECUTABLE_FOR_CASH_CAP,
-    max_cash_when_enough: float = DEFAULT_MAX_CASH_WHEN_ENOUGH,
 ) -> pd.DataFrame:
     """
     execution_mode:
-    - overlay: BUY NOW gets full model weight; WAIT FOR PULLBACK gets partial weight
-      that scales up as trend breadth strengthens; residual stays in cash
+    - overlay: BUY NOW full model weight, WAIT FOR PULLBACK partial only for top N, DO NOT BUY zero
     - pure_topk: ignore entry labels and use model_target_weight directly
     """
+    WAIT_PULLBACK_MULTIPLIER = 0.50
+
     df = df.copy()
     df["entry_label"] = "DO NOT BUY"
 
@@ -1044,19 +864,6 @@ def apply_entry_labels_and_allocate(
         labels.loc[pullback_buy] = "BUY NOW"
 
         labels.loc[~invalid & strong_trend & (labels != "BUY NOW")] = "WAIT FOR PULLBACK"
-        recovering = (
-            (labels == "DO NOT BUY")
-            & ~invalid
-            & valid_ema
-            & (dist <= DEFAULT_WAIT_PULLBACK_NEAR_EMA)
-            & (selected["improvement_score"] >= DEFAULT_RECOVERING_MIN_IMPROVEMENT)
-            & (
-                (selected["macd_hist_change_10d"] > 0)
-                | (selected["weekly_macd_change_20d"] > 0)
-                | (selected["ema_persist_change_20d"] > 0)
-            )
-        )
-        labels.loc[recovering] = "RECOVERING"
         df.loc[selected.index, "entry_label"] = labels
 
     if execution_mode == "pure_topk":
@@ -1070,135 +877,45 @@ def apply_entry_labels_and_allocate(
         raise ValueError(f"Unsupported execution mode: {execution_mode}")
 
     df["target_weight"] = 0.0
-
-    universe_non_cash = df[~df["cash_like"]].copy()
-    if not universe_non_cash.empty:
-        trend_breadth = float(
-            (
-                universe_non_cash["above_sma200"].astype(bool)
-                & universe_non_cash["sma50_gt_sma200"].astype(bool)
-            ).mean()
-        )
-        ema_breadth = float(universe_non_cash["above_ema10"].astype(bool).mean())
-        momentum_breadth = float(
-            (
-                (universe_non_cash["macd_hist"] > 0)
-                & (universe_non_cash["weekly_macd_hist"] > 0)
-            ).mean()
-        )
-        strong_trend_breadth = float(np.mean([trend_breadth, ema_breadth, momentum_breadth]))
-    else:
-        strong_trend_breadth = 0.0
-    breadth_strength = min(1.0, strong_trend_breadth / DEFAULT_BREADTH_FULLY_RISK_ON)
-    weak_participation = min(ema_breadth, momentum_breadth) if not universe_non_cash.empty else 0.0
-    defense_active = (
-        strong_trend_breadth < DEFAULT_DEFENSE_BREADTH_THRESHOLD
-        and weak_participation < DEFAULT_DEFENSE_PARTICIPATION_THRESHOLD
-    )
-    wait_multiplier = (
-        DEFAULT_WAIT_PULLBACK_MIN_MULTIPLIER
-        + (DEFAULT_WAIT_PULLBACK_MAX_MULTIPLIER - DEFAULT_WAIT_PULLBACK_MIN_MULTIPLIER) * breadth_strength
-    )
-    if defense_active:
-        wait_multiplier *= DEFAULT_DEFENSE_WAIT_MULTIPLIER
+    exec_w = pd.Series(0.0, index=df["ticker"], dtype=float)
 
     buy_now = df[df["selected"] & ~df["cash_like"] & (df["entry_label"] == "BUY NOW")]
+
     wait_pb = df[df["selected"] & ~df["cash_like"] & (df["entry_label"] == "WAIT FOR PULLBACK")].copy()
-    recovering = df[df["selected"] & ~df["cash_like"] & (df["entry_label"] == "RECOVERING")].copy()
     if not wait_pb.empty:
         wait_pb = wait_pb.sort_values(
             ["model_target_weight", "raw_score", "ticker"],
             ascending=[False, False, True],
         )
         if max_wait_pullback >= 0:
-            wait_limit = max_wait_pullback + int(round(breadth_strength * DEFAULT_WAIT_PULLBACK_BREADTH_BONUS_SLOTS))
-            wait_pb = wait_pb.head(wait_limit)
-    if not recovering.empty:
-        recovering = recovering.sort_values(
-            ["improvement_score", "raw_score", "ticker"],
-            ascending=[False, False, True],
-        ).head(DEFAULT_RECOVERING_MAX_NAMES)
-    if buy_now.empty and wait_pb.empty and recovering.empty:
-        fallback = df[df["selected"] & ~df["cash_like"]].copy()
-        if fallback.empty:
-            fallback = df[~df["cash_like"] & (df["raw_score"] > 0)].copy()
-        if fallback.empty:
-            fallback = df[~df["cash_like"]].copy()
-        fallback = fallback.sort_values(["raw_score", "ticker"], ascending=[False, True]).head(max(1, max_wait_pullback))
-        fw = fallback.set_index("ticker")["model_target_weight"].clip(lower=0.0)
-        if float(fw.sum()) <= 0:
-            fw = fallback.set_index("ticker")["raw_score"].clip(lower=0.0)
-        if float(fw.sum()) <= 0:
-            fw = pd.Series(1.0, index=fallback["ticker"])
-        fw = capped_normalize(fw, max_cap=max_alloc)
-        for t, wt in fw.items():
-            df.loc[df["ticker"] == t, "target_weight"] = float(wt)
+            wait_pb = wait_pb.head(max_wait_pullback)
+
+    if not buy_now.empty:
+        bw = buy_now.set_index("ticker")["model_target_weight"].clip(lower=0.0)
+        exec_w.loc[bw.index] += bw
+
+    if not wait_pb.empty and max_wait_pullback != 0:
+        ww = wait_pb.set_index("ticker")["model_target_weight"].clip(lower=0.0) * WAIT_PULLBACK_MULTIPLIER
+        exec_w.loc[ww.index] += ww
+
+    exec_w = exec_w[exec_w > 0]
+
+    if exec_w.empty:
+        df.loc[df["ticker"] == cash_ticker, "target_weight"] = 1.0
     else:
-        component_weights = []
+        w = exec_w.clip(lower=0.0, upper=max_alloc)
 
-        if not buy_now.empty:
-            bw = buy_now.set_index("ticker")["model_target_weight"].clip(lower=0.0)
-            if float(bw.sum()) <= 0:
-                bw = buy_now.set_index("ticker")["raw_score"].clip(lower=0.0)
-            if float(bw.sum()) <= 0:
-                bw = pd.Series(1.0, index=buy_now["ticker"])
-            component_weights.append(bw)
+        total_w = float(w.sum())
+        if total_w > 1.0 + 1e-12:
+            w = w / total_w
 
-        if not wait_pb.empty:
-            wait_dist = pd.Series(np.inf, index=wait_pb.index, dtype=float)
-            valid_wait_ema = wait_pb["ema10"].notna() & (wait_pb["ema10"] > 0)
-            wait_dist.loc[valid_wait_ema] = (
-                wait_pb.loc[valid_wait_ema, "last_close"] / wait_pb.loc[valid_wait_ema, "ema10"] - 1.0
-            )
-            proximity_scale = pd.Series(DEFAULT_WAIT_PULLBACK_FAR_MULTIPLIER, index=wait_pb.index, dtype=float)
-            proximity_scale.loc[wait_dist <= DEFAULT_EXTENDED_FROM_EMA] = 1.0
-            proximity_scale.loc[
-                (wait_dist > DEFAULT_EXTENDED_FROM_EMA) & (wait_dist <= DEFAULT_WAIT_PULLBACK_NEAR_EMA)
-            ] = DEFAULT_WAIT_PULLBACK_MID_MULTIPLIER
-            proximity_scale.loc[wait_pb["above_ema10"].astype(bool) & (wait_dist <= DEFAULT_PULLBACK_EMA_BUFFER)] = 1.0
-
-            ww = (
-                wait_pb.set_index("ticker")["model_target_weight"].clip(lower=0.0)
-                * wait_multiplier
-                * proximity_scale.to_numpy()
-            )
-            if float(ww.sum()) <= 0:
-                ww = pd.Series(1.0, index=wait_pb["ticker"])
-            if defense_active:
-                ww *= DEFAULT_DEFENSE_WAIT_MULTIPLIER
-            component_weights.append(ww)
-
-        if not recovering.empty:
-            rw = recovering.set_index("ticker")["improvement_score"].clip(lower=0.0)
-            if float(rw.sum()) <= 0:
-                rw = recovering.set_index("ticker")["raw_score"].clip(lower=0.0)
-            if float(rw.sum()) <= 0:
-                rw = pd.Series(1.0, index=recovering["ticker"])
-            component_weights.append(rw * DEFAULT_RECOVERING_TOTAL_BUDGET)
-
-        combined = pd.concat(component_weights) if component_weights else pd.Series(dtype=float)
-        combined = combined.groupby(level=0).sum()
-        if float(combined.sum()) <= 0:
-            combined = pd.Series(1.0, index=combined.index if len(combined) else buy_now["ticker"])
-        combined = capped_normalize(combined, max_cap=max_alloc)
-        if buy_now.empty and not wait_pb.empty:
-            positive_improvement = wait_pb["improvement_score"].clip(lower=0.0)
-            improvement_scale = min(
-                1.0,
-                float(positive_improvement.mean()) / max(DEFAULT_RECOVERING_MIN_IMPROVEMENT, 1e-6)
-            ) if not positive_improvement.empty else 0.0
-            wait_only_active_multiplier = (
-                DEFAULT_WAIT_ONLY_ACTIVE_MULTIPLIER
-                + (DEFAULT_WAIT_ONLY_MAX_ACTIVE_MULTIPLIER - DEFAULT_WAIT_ONLY_ACTIVE_MULTIPLIER) * improvement_scale
-            )
-            combined *= wait_only_active_multiplier
-        for t, wt in combined.items():
+        for t, wt in w.items():
             df.loc[df["ticker"] == t, "target_weight"] = float(wt)
 
-    residual = max(0.0, 1.0 - float(df["target_weight"].sum()))
-    cash_mask = df["ticker"] == cash_ticker
-    if cash_mask.any() and residual > 0:
-        df.loc[cash_mask, "target_weight"] += residual
+        residual  = 1.0 - float(df["target_weight"].sum())
+        cash_mask = df["ticker"] == cash_ticker
+        if cash_mask.any():
+            df.loc[cash_mask, "target_weight"] += residual
 
     total = float(df["target_weight"].sum())
     if total > 1e-12:
@@ -1273,62 +990,78 @@ def rationale_for_row(row: pd.Series, cash_ticker: str) -> str:
 
 # ── candidate selection ────────────────────────────────────────────────────
 
-
 def select_candidates(
     metrics: pd.DataFrame,
     cash_ticker: str,
+    top_k: int,
     max_alloc: float,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
-    selection_top_n: int = DEFAULT_SELECTION_TOP_N,
-    concentration_exponent: float = DEFAULT_CONCENTRATION_EXPONENT,
-    min_executable_for_cash_cap: int = DEFAULT_MIN_EXECUTABLE_FOR_CASH_CAP,
-    max_cash_when_enough: float = DEFAULT_MAX_CASH_WHEN_ENOUGH,
+    prev_holdings: Optional[Set[str]] = None,
+    hold_band: Optional[int] = None,
     ticker_to_sleeve: Optional[Dict[str, str]] = None,
+    sleeve_topk: Optional[Dict[str, int]] = None,
     sleeve_targets: Optional[Dict[str, float]] = None,
     sleeve_max_allocs: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
-    df = _add_eligibility(metrics.copy())
-    df = _add_scores(df)
+    df     = _add_eligibility(metrics.copy())
+    df     = _add_scores(df)
 
-    if ticker_to_sleeve and sleeve_targets:
+    if ticker_to_sleeve and sleeve_topk:
         df["sleeve"] = df["ticker"].map(lambda t: ticker_to_sleeve.get(t, "general"))
-        active_sleeves = {k for k, v in sleeve_targets.items() if float(v) > 0}
-        df["selected"] = df["cash_like"]
-        sleeve_slots = derive_sleeve_topk(selection_top_n, sleeve_targets) if selection_top_n > 0 else {}
-        for sleeve in active_sleeves:
+        ranked_parts = []
+        selected: Set[str] = set()
+
+        for sleeve, sleeve_k in sleeve_topk.items():
             sleeve_df = (
-                df[
-                    (~df["cash_like"])
-                    & df["eligible"]
-                    & (df["raw_score"] > 0)
-                    & (df["sleeve"] == sleeve)
-                ]
-                .sort_values(["raw_score", "ret_6m", "ticker"], ascending=[False, False, True])
+                df[(~df["cash_like"]) & (df["sleeve"] == sleeve)]
+                .sort_values("raw_score", ascending=False)
+                .reset_index(drop=True)
                 .copy()
             )
-            if sleeve_df.empty:
+            if sleeve_df.empty or sleeve_k <= 0:
                 continue
-            if selection_top_n > 0:
-                slots = sleeve_slots.get(sleeve, 0)
-                sleeve_df = sleeve_df.head(slots)
-            df.loc[df["ticker"].isin(sleeve_df["ticker"]), "selected"] = True
+            sleeve_df["rank"] = sleeve_df.index + 1
+            ranked_parts.append(sleeve_df)
+            selected.update(sleeve_df.head(sleeve_k)["ticker"].tolist())
+
+            if prev_holdings:
+                keep_threshold = hold_band if hold_band is not None else sleeve_k + DEFAULT_HOLD_BAND_OFFSET
+                ranked_lookup = sleeve_df.set_index("ticker")[["rank", "raw_score"]]
+                for t in prev_holdings:
+                    if t in ranked_lookup.index:
+                        row = ranked_lookup.loc[t]
+                        if int(row["rank"]) <= keep_threshold and float(row["raw_score"]) > 0:
+                            selected.add(t)
+
+        ranked = pd.concat(ranked_parts, ignore_index=True) if ranked_parts else pd.DataFrame(columns=["ticker", "raw_score", "rank"])
     else:
-        df["selected"] = df["cash_like"]
         ranked = (
-            df[(~df["cash_like"]) & df["eligible"] & (df["raw_score"] > 0)]
-            .sort_values(["raw_score", "ret_6m", "ticker"], ascending=[False, False, True])
+            df[~df["cash_like"]]
+            .sort_values("raw_score", ascending=False)
+            .reset_index(drop=True)
             .copy()
         )
-        if selection_top_n > 0:
-            ranked = ranked.head(selection_top_n)
-        df.loc[df["ticker"].isin(ranked["ticker"]), "selected"] = True
+        ranked["rank"] = ranked.index + 1
+        selected = set(ranked.head(top_k)["ticker"].tolist())
 
-    df = build_model_weights(
-        df, cash_ticker, max_alloc, allocation_mode, concentration_exponent,
-        ticker_to_sleeve, sleeve_targets, sleeve_max_allocs
-    )
+        if prev_holdings:
+            keep_threshold = max(top_k, hold_band if hold_band is not None else top_k + DEFAULT_HOLD_BAND_OFFSET)
+            ranked_lookup = ranked.set_index("ticker")[["rank", "raw_score"]]
+            for t in prev_holdings:
+                if t in ranked_lookup.index:
+                    row = ranked_lookup.loc[t]
+                    if int(row["rank"]) <= keep_threshold and float(row["raw_score"]) > 0:
+                        selected.add(t)
+            # Hysteresis: existing holdings can remain until they fall below keep_threshold.
+            # New entrants still only come from the current top_k.
+
+    df["selected"] = df["ticker"].isin(selected) | df["cash_like"]
+    df.loc[~df["cash_like"] & (df["raw_score"] <= 0), "selected"] = False
+
+    # Build model weights using allocation mode
+    df = build_model_weights(df, cash_ticker, max_alloc, allocation_mode, ticker_to_sleeve, sleeve_targets, sleeve_max_allocs)
     df["model_target_weight"] = df["target_weight"].copy()
 
     return apply_entry_labels_and_allocate(
@@ -1337,47 +1070,26 @@ def select_candidates(
         max_alloc=max_alloc,
         execution_mode=execution_mode,
         max_wait_pullback=max_wait_pullback,
-        min_executable_for_cash_cap=min_executable_for_cash_cap,
-        max_cash_when_enough=max_cash_when_enough,
     )
-
 
 
 def recheck_entry_signals(
     metrics: pd.DataFrame,
+    current_selected: Set[str],
     cash_ticker: str,
     max_alloc: float,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
-    current_weights: Optional[pd.Series] = None,
-    concentration_exponent: float = DEFAULT_CONCENTRATION_EXPONENT,
-    min_executable_for_cash_cap: int = DEFAULT_MIN_EXECUTABLE_FOR_CASH_CAP,
-    max_cash_when_enough: float = DEFAULT_MAX_CASH_WHEN_ENOUGH,
     ticker_to_sleeve: Optional[Dict[str, str]] = None,
     sleeve_targets: Optional[Dict[str, float]] = None,
     sleeve_max_allocs: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
-    df = _add_eligibility(metrics.copy())
-    df = _add_scores(df)
+    df     = _add_eligibility(metrics.copy())
+    df     = _add_scores(df)
+    df["selected"] = df["ticker"].isin(current_selected) | df["cash_like"]
 
-    held_non_cash: Set[str] = set()
-    if current_weights is not None and len(current_weights):
-        held_non_cash = {
-            str(t)
-            for t, wt in current_weights.items()
-            if str(t) != cash_ticker and float(wt) > 1e-12
-        }
-
-    # Entry checks should only revisit currently held names, not reopen the
-    # entire candidate set and effectively turn lower-frequency schedules into
-    # weekly rebalances.
-    df["selected"] = df["ticker"].isin(held_non_cash) | df["cash_like"]
-
-    df = build_model_weights(
-        df, cash_ticker, max_alloc, allocation_mode, concentration_exponent,
-        ticker_to_sleeve, sleeve_targets, sleeve_max_allocs
-    )
+    df = build_model_weights(df, cash_ticker, max_alloc, allocation_mode, ticker_to_sleeve, sleeve_targets, sleeve_max_allocs)
     df["model_target_weight"] = df["target_weight"].copy()
 
     return apply_entry_labels_and_allocate(
@@ -1386,8 +1098,6 @@ def recheck_entry_signals(
         max_alloc=max_alloc,
         execution_mode=execution_mode,
         max_wait_pullback=max_wait_pullback,
-        min_executable_for_cash_cap=min_executable_for_cash_cap,
-        max_cash_when_enough=max_cash_when_enough,
     )
 
 
@@ -1467,18 +1177,17 @@ def run_schedule_backtest(
     feature_store: Dict[str, pd.DataFrame],
     schedule_code: str,
     cash_ticker: str,
+    top_k: int,
     start: str,
     end: str,
+    hold_band: Optional[int],
     max_alloc: float,
     transaction_cost_bps: int,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
-    selection_top_n: int,
-    concentration_exponent: float,
-    min_executable_for_cash_cap: int,
-    max_cash_when_enough: float,
     ticker_to_sleeve: Optional[Dict[str, str]] = None,
+    sleeve_topk: Optional[Dict[str, int]] = None,
     sleeve_targets: Optional[Dict[str, float]] = None,
     sleeve_max_allocs: Optional[Dict[str, float]] = None,
 ):
@@ -1487,7 +1196,7 @@ def run_schedule_backtest(
     """
     px = close_px.loc[start:end, universe].sort_index().ffill().dropna(how="all")
     if px.empty:
-        raise ValueError(f"No price data in {start} -> {end}")
+        raise ValueError(f"No price data in {start} → {end}")
 
     rebalance_dates   = {d for d in px.resample(REBALANCE_MAP[schedule_code]).last().index if d in px.index}
     entry_check_dates = {d for d in px.resample(REBALANCE_MAP["W"]).last().index if d in px.index}
@@ -1501,6 +1210,9 @@ def run_schedule_backtest(
     )
 
     weights = pd.Series(0.0, index=universe, dtype=float)
+    weights[cash_ticker] = 1.0
+    current_selected: Set[str] = set()
+
     equity_vals:     list = []
     turnover_rows:   list = []
     weights_history: list = []
@@ -1510,21 +1222,6 @@ def run_schedule_backtest(
 
     for i, dt in enumerate(px.index):
         if i == 0:
-            metrics = build_snapshot_metrics(universe, feature_store, dt)
-            alloc = select_candidates(
-                metrics, cash_ticker, max_alloc,
-                allocation_mode, execution_mode, max_wait_pullback,
-                selection_top_n=selection_top_n,
-                concentration_exponent=concentration_exponent,
-                min_executable_for_cash_cap=min_executable_for_cash_cap,
-                max_cash_when_enough=max_cash_when_enough,
-                ticker_to_sleeve=ticker_to_sleeve,
-                sleeve_targets=sleeve_targets, sleeve_max_allocs=sleeve_max_allocs,
-            )
-            init_w = alloc.set_index("ticker")["target_weight"].reindex(universe).fillna(0.0)
-            init_total = float(init_w.sum())
-            if init_total > 1e-12:
-                weights = init_w / init_total
             equity_vals.append(equity)
             weights_history.append({"date": dt, **weights.to_dict()})
             continue
@@ -1552,36 +1249,25 @@ def run_schedule_backtest(
 
             if need_rebalance:
                 alloc = select_candidates(
-                    metrics, cash_ticker, max_alloc,
+                    metrics, cash_ticker, top_k, max_alloc,
                     allocation_mode, execution_mode, max_wait_pullback,
-                    selection_top_n=selection_top_n,
-                    concentration_exponent=concentration_exponent,
-                    min_executable_for_cash_cap=min_executable_for_cash_cap,
-                    max_cash_when_enough=max_cash_when_enough,
-                    ticker_to_sleeve=ticker_to_sleeve,
+                    prev_holdings=current_selected, hold_band=hold_band,
+                    ticker_to_sleeve=ticker_to_sleeve, sleeve_topk=sleeve_topk,
                     sleeve_targets=sleeve_targets, sleeve_max_allocs=sleeve_max_allocs,
+                )
+                current_selected = set(
+                    alloc.loc[alloc["selected"] & ~alloc["cash_like"], "ticker"].tolist()
                 )
             else:
                 alloc = recheck_entry_signals(
-                    metrics, cash_ticker, max_alloc,
+                    metrics, current_selected, cash_ticker, max_alloc,
                     allocation_mode, execution_mode, max_wait_pullback,
-                    current_weights=drifted_weights,
-                    concentration_exponent=concentration_exponent,
-                    min_executable_for_cash_cap=min_executable_for_cash_cap,
-                    max_cash_when_enough=max_cash_when_enough,
                     ticker_to_sleeve=ticker_to_sleeve,
                     sleeve_targets=sleeve_targets, sleeve_max_allocs=sleeve_max_allocs,
                 )
 
             target_w_map = alloc.set_index("ticker")["target_weight"]
             target_w = target_w_map.reindex(universe).fillna(0.0)
-            target_w = (
-                drifted_weights * (1.0 - DEFAULT_REBALANCE_INERTIA)
-                + target_w * DEFAULT_REBALANCE_INERTIA
-            )
-            target_total = float(target_w.sum())
-            if target_total > 1e-12:
-                target_w = target_w / target_total
             turnover = float((target_w - drifted_weights).abs().sum() / 2.0)
 
             if transaction_cost_bps > 0 and turnover > 0:
@@ -1627,19 +1313,15 @@ def allocation_mode(
     universe_path: Optional[str],
     holdings_path: str,
     cash_ticker: str,
+    top_k: int,
     export_prefix: str,
     start: Optional[str],
     end: Optional[str],
+    hold_band: Optional[int],
     max_alloc: float,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
-    selection_top_n: int,
-    concentration_exponent: float,
-    clean_universe: bool,
-    exclude_income_funds: bool,
-    min_executable_for_cash_cap: int,
-    max_cash_when_enough: float,
     price_cache_dir: Optional[str],
     refresh_cache: bool,
     universe_3x_path: Optional[str] = None,
@@ -1656,12 +1338,9 @@ def allocation_mode(
     print_progress("=" * 100)
     print_step(1, total_steps, "Loading universe and current holdings")
     universe, ticker_to_sleeve = load_configurable_universes(universe_path, universe_3x_path, universe_2x_path, universe_broad_path)
-    raw_universe = list(universe)
-    universe, dropped = filter_universe_tickers(universe, cash_ticker, clean_universe, exclude_income_funds)
-    ticker_to_sleeve = {t: s for t, s in ticker_to_sleeve.items() if t in set(universe)}
     holdings = read_holdings(holdings_path)
 
-    bad = sorted(set(holdings["ticker"]) - set(raw_universe))
+    bad = sorted(set(holdings["ticker"]) - set(universe))
     if bad:
         raise ValueError(f"Holdings contain tickers not in universe file: {bad}")
     if cash_ticker not in universe:
@@ -1671,17 +1350,16 @@ def allocation_mode(
     if any([universe_3x_path, universe_2x_path, universe_broad_path]):
         sleeve_targets = sleeve_targets or {"broad": 0.70, "3x": 0.20, "2x": 0.10}
         sleeve_max_allocs = sleeve_max_allocs or {"broad": 0.20, "3x": 0.10, "2x": 0.08}
+        sleeve_topk = derive_sleeve_topk(top_k, sleeve_targets)
     else:
         sleeve_targets = None
         sleeve_max_allocs = None
+        sleeve_topk = None
     tickers = sorted(set(universe) | COMPARISON_BENCHMARK_TICKERS)
     print_progress(
         f"Universe loaded: {len(universe)} ETFs  |  Holdings rows: {len(holdings)}  |  "
         f"Price window: {effective_start} -> {end or 'latest'}"
     )
-    if dropped:
-        reason_counts = pd.Series(list(dropped.values())).value_counts().to_dict()
-        print_progress(f"Universe filter removed {len(dropped)} tickers: {reason_counts}")
 
     print_step(2, total_steps, "Downloading or loading price history")
     ohlcv = download_ohlcv_history(
@@ -1706,16 +1384,14 @@ def allocation_mode(
     metrics = build_snapshot_metrics(universe, feature_store, asof)
     print_progress(f"ETFs with sufficient history: {len(metrics)}")
 
-    current = derive_current_weights(holdings, close_px)
+    current   = derive_current_weights(holdings, close_px)
+    prev_hold = set(current.loc[current["current_weight"] > 0, "ticker"].tolist())
 
     alloc = select_candidates(
-        metrics, cash_ticker, max_alloc,
+        metrics, cash_ticker, top_k, max_alloc,
         allocation_mode, execution_mode, max_wait_pullback,
-        selection_top_n=selection_top_n,
-        concentration_exponent=concentration_exponent,
-        min_executable_for_cash_cap=min_executable_for_cash_cap,
-        max_cash_when_enough=max_cash_when_enough,
-        ticker_to_sleeve=ticker_to_sleeve,
+        prev_holdings=prev_hold, hold_band=hold_band,
+        ticker_to_sleeve=ticker_to_sleeve, sleeve_topk=sleeve_topk,
         sleeve_targets=sleeve_targets, sleeve_max_allocs=sleeve_max_allocs,
     )
     sel_nc = alloc[alloc["selected"] & ~alloc["cash_like"]].copy()
@@ -1747,8 +1423,6 @@ def allocation_mode(
 
     metrics_cols = [
         "ticker","sleeve","last_close","ret_6m","realized_vol20","atr15",
-        "trend_stack_persist_20d","ema_persist_20d","macd_persist_20d","weekly_macd_persist_8w",
-        "concentration_persistence","concentration_ready",
         "above_ema10","above_sma200","sma50_gt_sma200",
         "macd","macd_signal","macd_hist","weekly_macd_hist",
         "breakout_89d","breakout_recent","exit_13d",
@@ -1777,12 +1451,13 @@ def allocation_mode(
     print("=" * 100)
     print(f"As of: {asof.date()}")
     print(
-        f"Allocation mode: {allocation_mode}  |  Execution mode: {execution_mode}  |  "
-        f"Selection top N: {selection_top_n}  |  Concentration exponent: {concentration_exponent:.2f}"
+        f"Top-k: {top_k}  |  Hold band: {hold_band if hold_band is not None else top_k + DEFAULT_HOLD_BAND_OFFSET}  |  "
+        f"Allocation mode: {allocation_mode}  |  Execution mode: {execution_mode}"
     )
     if sleeve_targets:
         print(f"Sleeve targets: {sleeve_targets}")
         print(f"Sleeve max allocs: {sleeve_max_allocs}")
+        print(f"Sleeve top-k: {sleeve_topk}")
     print(f"Max alloc: {max_alloc:.0%}  |  Max WAIT FOR PULLBACK: {max_wait_pullback}  |  Cash ticker: {cash_ticker}")
     print()
     print("Recommended rebalance actions")
@@ -1797,20 +1472,16 @@ def allocation_mode(
 def backtest_mode(
     universe_path: Optional[str],
     cash_ticker: str,
+    top_k: int,
     export_prefix: str,
     start: str,
     end: str,
+    hold_band: Optional[int],
     max_alloc: float,
     transaction_cost_bps: int,
     allocation_mode: str,
     execution_mode: str,
     max_wait_pullback: int,
-    selection_top_n: int,
-    concentration_exponent: float,
-    clean_universe: bool,
-    exclude_income_funds: bool,
-    min_executable_for_cash_cap: int,
-    max_cash_when_enough: float,
     price_cache_dir: Optional[str],
     refresh_cache: bool,
     universe_3x_path: Optional[str] = None,
@@ -1823,8 +1494,6 @@ def backtest_mode(
         raise ValueError("max_alloc must be in the interval (0, 1].")
     print_progress("Loading ETF universe")
     universe, ticker_to_sleeve = load_configurable_universes(universe_path, universe_3x_path, universe_2x_path, universe_broad_path)
-    universe, dropped = filter_universe_tickers(universe, cash_ticker, clean_universe, exclude_income_funds)
-    ticker_to_sleeve = {t: s for t, s in ticker_to_sleeve.items() if t in set(universe)}
 
     if cash_ticker not in universe:
         universe.append(cash_ticker)
@@ -1833,19 +1502,18 @@ def backtest_mode(
     if any([universe_3x_path, universe_2x_path, universe_broad_path]):
         sleeve_targets = sleeve_targets or {"broad": 0.70, "3x": 0.20, "2x": 0.10}
         sleeve_max_allocs = sleeve_max_allocs or {"broad": 0.20, "3x": 0.10, "2x": 0.08}
+        sleeve_topk = derive_sleeve_topk(top_k, sleeve_targets)
     else:
         sleeve_targets = None
         sleeve_max_allocs = None
+        sleeve_topk = None
 
     tickers        = sorted(set(universe) | COMPARISON_BENCHMARK_TICKERS)
     buffered_start = (datetime.fromisoformat(start) - timedelta(days=550)).strftime("%Y-%m-%d")
     print_progress(
         f"Universe: {len(universe)} ETFs from file  |  "
-        f"Backtest: {start} -> {end}  |  Download from: {buffered_start}"
+        f"Backtest: {start} → {end}  |  Download from: {buffered_start}"
     )
-    if dropped:
-        reason_counts = pd.Series(list(dropped.values())).value_counts().to_dict()
-        print_progress(f"Universe filter removed {len(dropped)} tickers: {reason_counts}")
     if transaction_cost_bps:
         print_progress(f"Transaction cost: {transaction_cost_bps} bps/side ({transaction_cost_bps * 2} bps round-trip)")
 
@@ -1870,11 +1538,9 @@ def backtest_mode(
 
     for label, code in schedules.items():
         result = run_schedule_backtest(
-            universe, ohlcv, close_px, feature_store, code, cash_ticker, start, end,
-            max_alloc, transaction_cost_bps, allocation_mode, execution_mode, max_wait_pullback,
-            selection_top_n, concentration_exponent,
-            min_executable_for_cash_cap, max_cash_when_enough,
-            ticker_to_sleeve=ticker_to_sleeve,
+            universe, ohlcv, close_px, feature_store, code, cash_ticker, top_k, start, end,
+            hold_band, max_alloc, transaction_cost_bps, allocation_mode, execution_mode, max_wait_pullback,
+            ticker_to_sleeve=ticker_to_sleeve, sleeve_topk=sleeve_topk,
             sleeve_targets=sleeve_targets, sleeve_max_allocs=sleeve_max_allocs,
         )
         if result[0] is None:
@@ -1954,7 +1620,7 @@ def backtest_mode(
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="ETF Strategy Stack - allocation & backtest tool")
+    p = argparse.ArgumentParser(description="ETF Strategy Stack — allocation & backtest tool")
     p.add_argument("--mode", choices=["allocate", "backtest"], required=True)
     p.add_argument("--universe", help="Path to combined universe file (one ticker per line)")
     p.add_argument("--holdings", help="Path to holdings CSV (required for --mode allocate)")
@@ -1973,9 +1639,14 @@ def build_parser() -> argparse.ArgumentParser:
         help='Comma-separated max allocation caps by sleeve, e.g. "broad=0.2,3x=0.1,2x=0.08"',
     )
     p.add_argument("--cash-ticker", default=DEFAULT_CASH_TICKER)
+    p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     p.add_argument("--start", help="Start date YYYY-MM-DD")
     p.add_argument("--end", help="End date YYYY-MM-DD")
     p.add_argument("--export-prefix", default="etf_strategy")
+    p.add_argument(
+        "--hold-band", type=int,
+        help=f"Rank threshold for retaining existing holdings. Default: top-k + {DEFAULT_HOLD_BAND_OFFSET}.",
+    )
     p.add_argument(
         "--max-alloc", type=float, default=DEFAULT_MAX_ALLOC,
         help="Maximum allocation per non-cash ETF as a 0-1 fraction. Use 1.0 for no cap.",
@@ -2003,40 +1674,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of WAIT FOR PULLBACK ETFs allowed to receive partial allocation in overlay mode.",
     )
     p.add_argument(
-        "--selection-top-n",
-        type=int,
-        default=DEFAULT_SELECTION_TOP_N,
-        help="Maximum number of non-cash ETFs to select at each rebalance. Use 0 to keep all eligible names.",
-    )
-    p.add_argument(
-        "--concentration-exponent",
-        type=float,
-        default=DEFAULT_CONCENTRATION_EXPONENT,
-        help="Exponent applied to score- or momentum-based weights. Higher values concentrate capital in the top-ranked names.",
-    )
-    p.add_argument(
-        "--no-clean-universe",
-        action="store_true",
-        help="Disable default universe cleaning that removes fixed income, commodities, MLPs, and single-country ETFs.",
-    )
-    p.add_argument(
-        "--keep-income-funds",
-        action="store_true",
-        help="Keep covered-call and high-income ETFs in the tradable universe.",
-    )
-    p.add_argument(
-        "--min-executable-for-cash-cap",
-        type=int,
-        default=DEFAULT_MIN_EXECUTABLE_FOR_CASH_CAP,
-        help="If at least this many ETFs are executable, cap cash at --max-cash-when-enough.",
-    )
-    p.add_argument(
-        "--max-cash-when-enough",
-        type=float,
-        default=DEFAULT_MAX_CASH_WHEN_ENOUGH,
-        help="Maximum cash weight allowed when enough ETFs are executable.",
-    )
-    p.add_argument(
         "--price-cache-dir",
         default=None,
         help="Optional directory for OHLCV parquet cache. If provided, cached files are reused across runs.",
@@ -2053,8 +1690,6 @@ def main():
     args = build_parser().parse_args()
     sleeve_targets = parse_key_value_string(args.sleeve_targets, float) if args.sleeve_targets else None
     sleeve_max_allocs = parse_key_value_string(args.sleeve_max_allocs, float) if args.sleeve_max_allocs else None
-    clean_universe = not args.no_clean_universe
-    exclude_income_funds = not args.keep_income_funds
 
     if args.mode == "allocate":
         if not args.holdings:
@@ -2063,19 +1698,15 @@ def main():
             args.universe,
             args.holdings,
             args.cash_ticker.upper(),
+            args.top_k,
             args.export_prefix,
             args.start,
             args.end,
+            args.hold_band,
             args.max_alloc,
             args.allocation_mode,
             args.execution_mode,
             args.max_wait_pullback,
-            args.selection_top_n,
-            args.concentration_exponent,
-            clean_universe,
-            exclude_income_funds,
-            args.min_executable_for_cash_cap,
-            args.max_cash_when_enough,
             args.price_cache_dir,
             args.refresh_cache,
             universe_3x_path=args.universe_3x,
@@ -2090,20 +1721,16 @@ def main():
         backtest_mode(
             args.universe,
             args.cash_ticker.upper(),
+            args.top_k,
             args.export_prefix,
             args.start,
             args.end,
+            args.hold_band,
             args.max_alloc,
             args.transaction_cost_bps,
             args.allocation_mode,
             args.execution_mode,
             args.max_wait_pullback,
-            args.selection_top_n,
-            args.concentration_exponent,
-            clean_universe,
-            exclude_income_funds,
-            args.min_executable_for_cash_cap,
-            args.max_cash_when_enough,
             args.price_cache_dir,
             args.refresh_cache,
             universe_3x_path=args.universe_3x,
