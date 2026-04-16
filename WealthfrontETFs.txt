@@ -67,6 +67,18 @@ MLPA
 VanEck Morningstar Wide Moat ETF
 MOAT
 
+ETHA-etf
+ETHA
+
+ITOT-etf
+ITOT
+
+prf-etf
+PRF
+
+skyy-etf
+SKYY
+
 VanEck Oil Services ETF
 OIH
 
@@ -417,6 +429,3 @@ SPY
 
 iShares Russell 2000 ETF (IWM)
 IWM
-
-Invesco S&P 500 Equal Weight ETF
-RSP
