@@ -67,6 +67,14 @@ MLPA
 VanEck Morningstar Wide Moat ETF
 MOAT
 
+ValueError: Holdings contain tickers not in universe file: ['
+ETHA
+ITOT
+PRF
+SKYY
+
+
+
 VanEck Oil Services ETF
 OIH
 
