@@ -120,6 +120,13 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int = DEFAULT
 def realized_vol(series: pd.Series, window: int = DEFAULT_VOL_DAYS) -> pd.Series:
     return series.pct_change().rolling(window).std() * math.sqrt(252)
 
+def rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / (loss + 1e-12)
+    return 100 - (100 / (1 + rs))
+
 def weekly_proxy_macd_hist(series: pd.Series) -> pd.Series:
     weekly = series.resample("W-FRI").last().dropna()
     _, _, h = macd(weekly)
@@ -162,17 +169,21 @@ def build_snapshot_metrics(universe, ohlcv, asof, cash_ticker, momentum_lookback
         atr15 = atr(high, low, close, atr_days)
         rv20 = realized_vol(close, DEFAULT_VOL_DAYS)
         weekly_hist = weekly_proxy_macd_hist(close)
+        rsi14 = rsi(close, window=14)
         prior_high = close.shift(1).rolling(breakout_days).max()
         prior_low = close.shift(1).rolling(exit_days).min()
         breakout_recent = (close.shift(1).rolling(DEFAULT_BREAKOUT_RECENT_DAYS).max() < close).iloc[-1]
         latest = float(close.iloc[-1])
         ret_6m = float(latest / close.iloc[-momentum_lookback_days] - 1.0)
+        rsi_val = float(rsi14.iloc[-1]) if not pd.isna(rsi14.iloc[-1]) else np.nan
+        is_oversold = bool(rsi_val < 30) if not pd.isna(rsi_val) else False
         rows.append({
             "ticker": ticker, "last_close": latest, "sma50": float(sma50.iloc[-1]), "sma200": float(sma200.iloc[-1]),
             "ema10": float(ema10.iloc[-1]), "macd": float(macd_line.iloc[-1]), "macd_signal": float(signal_line.iloc[-1]),
             "macd_hist": float(hist.iloc[-1]), "weekly_macd_hist": float(weekly_hist.iloc[-1]) if not pd.isna(weekly_hist.iloc[-1]) else np.nan,
             "atr15": float(atr15.iloc[-1]) if not pd.isna(atr15.iloc[-1]) else np.nan,
             "realized_vol20": float(rv20.iloc[-1]) if not pd.isna(rv20.iloc[-1]) else np.nan,
+            "rsi14": rsi_val, "is_oversold": is_oversold,
             "ret_6m": ret_6m, "breakout_89d": bool(latest > prior_high.iloc[-1]) if not pd.isna(prior_high.iloc[-1]) else False,
             "breakout_recent": bool(breakout_recent) if not pd.isna(breakout_recent) else False,
             "exit_13d": bool(latest < prior_low.iloc[-1]) if not pd.isna(prior_low.iloc[-1]) else False,
@@ -399,7 +410,7 @@ def allocation_mode(universe_path, holdings_path, cash_ticker, top_k, export_pre
     out["action"] = np.where(out["delta_weight"] > 1e-6, "INCREASE", np.where(out["delta_weight"] < -1e-6, "DECREASE", "HOLD"))
     out["rationale"] = out.apply(lambda r: rationale_for_row(r, cash_ticker), axis=1)
     action_view = out.sort_values(["target_weight","raw_score","ticker"], ascending=[False,False,True])
-    metrics_cols = ["ticker","sleeve","last_close","ret_6m","benchmark_hurdle","realized_vol20","atr15","above_ema10","above_sma200","sma50_gt_sma200","macd","macd_signal","macd_hist","weekly_macd_hist","breakout_89d","breakout_recent","exit_13d","raw_score","selected","entry_label","model_target_alloc_pct","current_alloc_pct","target_alloc_pct","delta_pct_points","action","rationale"]
+    metrics_cols = ["ticker","sleeve","last_close","ret_6m","benchmark_hurdle","realized_vol20","atr15","rsi14","is_oversold","above_ema10","above_sma200","sma50_gt_sma200","macd","macd_signal","macd_hist","weekly_macd_hist","breakout_89d","breakout_recent","exit_13d","raw_score","selected","entry_label","model_target_alloc_pct","current_alloc_pct","target_alloc_pct","delta_pct_points","action","rationale"]
     action_cols = ["ticker","sleeve","entry_label","current_alloc_pct","model_target_alloc_pct","target_alloc_pct","delta_pct_points","action","rationale"]
     print_progress("Writing output files")
     action_view[metrics_cols].to_csv(f"{export_prefix}_full_metrics.csv", index=False)
